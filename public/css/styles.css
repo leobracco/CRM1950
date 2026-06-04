@@ -206,7 +206,8 @@ textarea{min-height:74px;resize:vertical}
 
 @media (max-width:860px){
   #app{grid-template-columns:1fr}
-  .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:.2s;z-index:30;width:240px}
+  .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:.2s;z-index:30;width:240px;
+    height:100vh;height:100dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .sidebar.open{transform:none}
   .form-grid{grid-template-columns:1fr}
   .menu-btn{display:inline-flex !important}
