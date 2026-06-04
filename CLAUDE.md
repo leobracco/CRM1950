@@ -1,0 +1,61 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+ERP/CRM for an alfajor (Argentine cookie) factory: inventory of raw materials (insumos), sales, purchases, manufacturing with recipe consumption, batch (lote) traceability, regulatory labels (CAA / Ley 27.642 octagonal warning seals), per-unit serial numbers, and shipping labels.
+
+**Stack:** Node.js + Express · CouchDB (single-DB pattern with Mango indexes) · vanilla HTML/CSS/JS SPA (no frameworks). Domain language and UI are in Spanish; keep new domain terms in Spanish to match.
+
+## Commands
+
+```bash
+npm install        # install deps
+npm start          # run server (node server.js)
+npm run dev        # run with auto-reload (node --watch server.js)
+npm run seed       # create admin user + load sample data manually (lib/seed.js runs standalone)
+```
+
+There is no test suite, linter, or build step. App serves at http://localhost:3000. Default login: `admin` / `admin1950`.
+
+**CouchDB 3.x must be running.** Configure via env (or edit `config.js`): `COUCH_URL` (full URL with credentials, e.g. `http://admin:pass@127.0.0.1:5984`), `DB_NAME` (default `erp1950`), `SESSION_SECRET`, `ADMIN_USER`/`ADMIN_PASS`. The server still boots if CouchDB is unreachable (`db.init()` returns false) but API calls will fail.
+
+## Architecture
+
+**Single CouchDB database, discriminated by a `type` field.** There are no separate tables/collections. Every document carries `type` ∈ {`user`, `cliente`, `proveedor`, `insumo`, `producto`, `receta`, `compra`, `venta`, `orden`, `lote`, `movimiento`, `counter`}. Queries go through Mango `_find` against the indexes declared in `lib/db.js` (`INDEXES`). All listing/filtering helpers live in `lib/db.js` (`findByType`, `find`, `get`, `tryGet`, `insert`, `remove`).
+
+**Document IDs are meaningful and prefixed**, e.g. `lote:250604-0001`, `insumo:HAR`, `venta:000007`, `counter:venta`. This is how cross-references work (a `movimiento.refId` points at `venta:000007`). When creating docs, follow the existing `prefix:code` convention.
+
+**Correlative numbering is atomic-ish via counter docs.** `db.nextSeq(key)` increments `counter:<key>` with a 409-conflict retry loop. Used for OF (órdenes de fabricación), OC (compras), FV (ventas), and movimiento sequences. CouchDB has no real transactions, so all multi-step writes (manufacture, sale) rely on these retry loops, not atomicity — partial failures are possible.
+
+**Generic CRUD factory** (`lib/crud.js`): `crud(type, opts)` returns an Express router with GET list (with in-memory `?q=` search over `searchFields`), GET/:id, POST, PUT, DELETE. `opts.beforeWrite(doc, req, isNew)` is the hook for coercion/validation/derivation (see numeric coercion hooks `beforeProducto`/`beforeInsumo`/`beforeReceta` in `server.js`). `opts.afterWrite` for side effects. `insumos`, `productos`, `recetas`, `clientes`, `proveedores` are all just `crud()` instances. Routes with real business logic (`compras`, `ventas`, `fabricacion`, `lotes`, `etiquetas`, `movimientos`, `dashboard`) live in `routes/` as hand-written routers.
+
+**Stock + kardex** (`lib/stock.js`): never mutate `doc.stock` directly in business code. Call `stock.movimiento({...})` — it writes a `movimiento` (kardex) doc AND applies `ajustarStock` (also a 409-retry loop). Sign convention: positive delta = inflow, negative = consumption/sale. This is the single source of truth for stock changes and traceability.
+
+### Core domain flows
+
+- **Compra** (`routes/compras.js`): creates `compra` doc → `stock.movimiento(+)` per insumo → updates each insumo's `costoUnit` (last cost).
+- **Fabricación** (`routes/fabricacion.js`): scales recipe by `cantidad/rinde` → validates insumo stock (unless `force`) → consumes insumos via `movimiento(-)` → creates a `lote` (code `YYMMDD-seq`, `fechaVencimiento` = elaboración + `producto.vidaUtilDias`) → creates `orden` (OF) → produces finished `producto` stock via `movimiento(+)` → writes computed `costoUnit` back to the producto.
+- **Venta** (`routes/ventas.js`): validates product stock → **FEFO** lot assignment (if no lot given, picks the lot with the nearest `fechaVencimiento`) → creates `venta` (FV) → `movimiento(-)` per product. Note: stock is tracked in aggregate, not per-lot, so FEFO assignment is informational on the movimiento, not an actual per-lot decrement.
+- **Trazabilidad / recall** (`routes/lotes.js` `:id/trazabilidad`): from a lote, walks back to the `orden` (origin = consumed insumos + suppliers) and forward via `movimiento`s where `motivo='venta'` (destination = sales + customers).
+- **Etiquetas** (`routes/etiquetas.js`): builds print-data JSON (label/rótulo, per-unit serie, shipping). Generates QR data-URLs (`qrcode` lib) pointing at the public trace URL `/t/<lote>` (and `?s=<serial>` per unit).
+
+### Auth & routing layers (`server.js`)
+
+Three layers, in order:
+1. **Public, no auth**: `/api/login`, `/api/logout`, `/api/me` (mounted via `auth.router`), plus the public traceability pages `/t/:codigo` and `/t/envio/:tracking` (the consumer-facing QR target, rendered server-side as inline HTML in `server.js`).
+2. **Auth-required API**: everything under the `api` router after `api.use(auth.requireAuth)`. Sessions are cookie-based (`express-session`, **in-memory store** — resets on restart). `POST /api/usuarios` is gated by `auth.requireRole('admin')`.
+3. **SPA fallback**: static `public/`, then `app.get('*')` serves `index.html` for client-side routing.
+
+Passwords are bcrypt-hashed (`lib/auth.js`); user docs are `user:<usuario-lowercase>` with a `rol` field (`admin`, `operario`, etc.).
+
+### Frontend SPA (`public/js/app.js`, ~730 lines, single file)
+
+Hash-based routing: `VIEWS` map (route → render fn) + `TITLES`, dispatched by `render()`/`go()`. `api()` is the fetch wrapper (auto-reloads on 401). `crudView()` is the generic list/form UI mirroring the backend `crud()` factory; `loadRef`/`refName` cache reference lists (clientes, productos…) for dropdowns and name lookups. `modal()`/`toast()`/`btn()` are the shared UI primitives. Always escape interpolated values with `esc()` (already used throughout).
+
+## Notes
+
+- Seed data (`lib/seed.js`) loads on first boot only if no `producto` docs exist: 1 admin user, sample insumos/productos/receta. Safe to re-run; it's idempotent.
+- `erp1950/` is an empty/extracted dir and `erp1950.zip` is a packaged snapshot — not the live source. Work in the repo root (`server.js`, `lib/`, `routes/`, `public/`).
+- Production gaps called out in README: in-memory sessions, no HTTPS/`cookie.secure`, no per-lot stock decrement, no CouchDB backups configured.

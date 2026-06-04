@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1950 · ERP — Fábrica de Alfajores</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="login">
+    <div class="login-card">
+      <div class="login-logo">1950</div>
+      <div class="login-sub">Alfajores · ERP</div>
+      <h2>Ingresar al sistema</h2>
+      <div id="loginErr" class="login-err hidden"></div>
+      <div class="field">
+        <label>Usuario</label>
+        <input id="luser" class="input" autocomplete="username" placeholder="admin">
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input id="lpass" class="input" type="password" autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button id="lbtn" class="btn btn-primary btn-block">Ingresar</button>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="b1">1950</div><div class="b2">Alfajores · ERP</div></div>
+      <nav class="nav" id="nav">
+        <div class="grp">General</div>
+        <a data-route="dashboard"><span class="ic">▦</span> Tablero</a>
+        <div class="grp">Comercial</div>
+        <a data-route="ventas"><span class="ic">＄</span> Ventas</a>
+        <a data-route="clientes"><span class="ic">☺</span> Clientes</a>
+        <a data-route="compras"><span class="ic">⇄</span> Compras</a>
+        <a data-route="proveedores"><span class="ic">⌂</span> Proveedores</a>
+        <div class="grp">Producción</div>
+        <a data-route="fabricacion"><span class="ic">⚙</span> Fabricación</a>
+        <a data-route="recetas"><span class="ic">✎</span> Recetas</a>
+        <a data-route="productos"><span class="ic">◉</span> Productos</a>
+        <a data-route="insumos"><span class="ic">▣</span> Insumos / Stock</a>
+        <a data-route="lotes"><span class="ic">⌘</span> Lotes / Trazabilidad</a>
+        <div class="grp">Impresión</div>
+        <a data-route="etiquetas"><span class="ic">🏷</span> Etiquetas y Rótulos</a>
+      </nav>
+      <div class="side-foot" id="sideFoot">v1.0</div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div style="display:flex;align-items:center;gap:.8rem">
+          <button class="btn btn-ghost btn-sm menu-btn" id="menuBtn">☰</button>
+          <div>
+            <h1 id="pageTitle">Tablero</h1>
+            <div class="sub" id="pageSub"></div>
+          </div>
+        </div>
+        <div class="user">
+          <div class="avatar" id="avatar">A</div>
+          <div style="font-size:.85rem">
+            <div id="uName" style="font-weight:600"></div>
+            <a id="logout" style="font-size:.78rem;color:var(--muted);cursor:pointer">Cerrar sesión</a>
+          </div>
+        </div>
+      </header>
+      <main class="content" id="content"></main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "erp1950",
+  "version": "1.0.0",
+  "description": "ERP/CRM para Fábrica de Alfajores 1950 (Node.js + CouchDB)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node lib/seed.js"
+  },
+  "author": "Agro Parallel",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "nano": "^10.1.3",
+    "qrcode": "^1.5.4"
+  }
+}
