@@ -74,12 +74,36 @@ api.use('/etiquetas', require('./routes/etiquetas'));
 api.use('/movimientos', require('./routes/movimientos'));
 api.use('/dashboard', require('./routes/dashboard'));
 
-// Crear usuario (solo admin)
+// Cambiar la propia contraseña (cualquier usuario autenticado)
+api.post('/cambiar-password', async (req, res) => {
+  const { actual, nueva } = req.body || {};
+  if (!actual || !nueva) return res.status(400).json({ error: 'Faltan datos' });
+  if (String(nueva).length < 4) return res.status(400).json({ error: 'La nueva contraseña es muy corta (mín. 4)' });
+  try { res.json(await auth.cambiarPassword(req.session.user.usuario, actual, nueva)); }
+  catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
+// Gestión de usuarios (solo admin)
+api.get('/usuarios', auth.requireRole('admin'), async (req, res) => {
+  try { res.json(await auth.listarUsuarios()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 api.post('/usuarios', auth.requireRole('admin'), async (req, res) => {
-  try { res.status(201).json(await auth.crearUsuario(req.body)); }
-  catch (e) {
+  if (!req.body || !req.body.usuario || !req.body.password)
+    return res.status(400).json({ error: 'Faltan usuario o contraseña' });
+  try {
+    const { hash, ...u } = await auth.crearUsuario(req.body);
+    res.status(201).json(u);
+  } catch (e) {
     if (e.statusCode === 409) return res.status(409).json({ error: 'El usuario ya existe' });
     res.status(500).json({ error: e.message });
+  }
+});
+api.put('/usuarios/:usuario', auth.requireRole('admin'), async (req, res) => {
+  try { res.json(await auth.actualizarUsuario(req.params.usuario, req.body || {})); }
+  catch (e) {
+    if (e.statusCode === 404) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 api.get('/empresa', (req, res) => res.json(cfg.empresa));

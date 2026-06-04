@@ -78,6 +78,7 @@ async function doLogin() {
 $('#lbtn').onclick = doLogin;
 $('#lpass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 $('#logout').onclick = async () => { await post('/logout'); location.reload(); };
+$('#chgPass').onclick = () => cambiarPassModal();
 $('#menuBtn').onclick = () => $('#sidebar').classList.toggle('open');
 
 /* ================= ROUTER ================= */
@@ -92,7 +93,8 @@ const TITLES = {
   productos: ['Productos', 'Catálogo de alfajores'],
   insumos: ['Insumos / Stock', 'Materias primas y existencias'],
   lotes: ['Lotes / Trazabilidad', 'Seguimiento y recall'],
-  etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos']
+  etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos'],
+  usuarios: ['Usuarios', 'Cuentas y accesos del sistema']
 };
 function go(route) { if (!TITLES[route]) route = 'dashboard'; location.hash = '#/' + route; }
 function render(route) {
@@ -117,6 +119,7 @@ function startApp() {
   $('#uName').textContent = USER.nombre;
   $('#avatar').textContent = (USER.nombre || 'U')[0].toUpperCase();
   $('#sideFoot').textContent = (USER.rol === 'admin' ? 'Administrador' : USER.nombre) + ' · v1.0';
+  $$('[data-admin]').forEach(el => el.style.display = USER.rol === 'admin' ? '' : 'none');
   render(location.hash.replace('#/', '') || 'dashboard');
 }
 
@@ -713,6 +716,72 @@ async function dashboardView(c) {
     </div>`;
 }
 
+/* ================= CUENTA / USUARIOS ================= */
+const ROLES = [['admin', 'Administrador'], ['ventas', 'Ventas'], ['produccion', 'Producción'], ['deposito', 'Depósito'], ['operario', 'Operario']];
+const rolLabel = r => (ROLES.find(o => o[0] === r) || [, r || '—'])[1];
+
+function cambiarPassModal() {
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field full"><label>Contraseña actual *</label><input class="input" id="pAct" type="password" autocomplete="current-password"></div>
+    <div class="field full"><label>Nueva contraseña *</label><input class="input" id="pNue" type="password" autocomplete="new-password"></div>
+    <div class="field full"><label>Repetir nueva *</label><input class="input" id="pRep" type="password" autocomplete="new-password"></div></div>`;
+  const save = btn('Cambiar', 'btn-primary', async () => {
+    const actual = $('#pAct', form).value, nueva = $('#pNue', form).value, rep = $('#pRep', form).value;
+    if (!actual || !nueva) return toast('Completá los campos', 'err');
+    if (nueva.length < 4) return toast('La nueva contraseña es muy corta (mín. 4)', 'err');
+    if (nueva !== rep) return toast('Las contraseñas no coinciden', 'err');
+    try { await post('/cambiar-password', { actual, nueva }); toast('Contraseña actualizada'); m.close(); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: 'Cambiar contraseña', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
+
+async function usuariosView(c) {
+  const users = await get('/usuarios');
+  c.innerHTML = `<div class="section-head"><h2>Usuarios</h2>
+      <button class="btn btn-primary" id="new">+ Nuevo usuario</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${users.length ? users.map(u => `<tr>
+      <td><b>${esc(u.usuario)}</b></td><td>${esc(u.nombre || '')}</td>
+      <td><span class="pill">${esc(rolLabel(u.rol))}</span></td>
+      <td><span class="pill ${u.activo !== false ? 'ok' : 'bad'}">${u.activo !== false ? 'Activo' : 'Inactivo'}</span></td>
+      <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit="${esc(u.usuario)}">Editar</button></td></tr>`).join('')
+      : `<tr><td colspan="5"><div class="empty">Sin usuarios</div></td></tr>`}</tbody></table></div>`;
+  $('#new').onclick = () => usuarioForm(null);
+  $$('[data-edit]', c).forEach(b => b.onclick = () => usuarioForm(users.find(u => u.usuario === b.dataset.edit)));
+}
+
+function usuarioForm(u) {
+  const isEdit = !!u;
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field"><label>Usuario *</label><input class="input" id="uUser" value="${esc(u?.usuario || '')}" ${isEdit ? 'readonly' : ''} autocomplete="off"></div>
+    <div class="field"><label>Nombre</label><input class="input" id="uNom" value="${esc(u?.nombre || '')}"></div>
+    <div class="field"><label>Rol</label><select id="uRol">${ROLES.map(o => `<option value="${o[0]}" ${u?.rol === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></div>
+    <div class="field"><label>${isEdit ? 'Nueva contraseña (opcional)' : 'Contraseña *'}</label><input class="input" id="uPass" type="password" autocomplete="new-password"></div>
+    ${isEdit ? `<div class="field full"><label style="display:flex;align-items:center;gap:.4rem"><input type="checkbox" id="uAct" ${u.activo !== false ? 'checked' : ''}> Activo</label></div>` : ''}</div>`;
+  const save = btn(isEdit ? 'Guardar' : 'Crear', 'btn-primary', async () => {
+    const usuario = $('#uUser', form).value.trim();
+    const nombre = $('#uNom', form).value.trim();
+    const rol = $('#uRol', form).value;
+    const password = $('#uPass', form).value;
+    if (!usuario) return toast('Falta el usuario', 'err');
+    try {
+      if (isEdit) {
+        const body = { nombre, rol, activo: $('#uAct', form).checked };
+        if (password) body.password = password;
+        await put('/usuarios/' + encodeURIComponent(usuario), body);
+      } else {
+        if (!password) return toast('Falta la contraseña', 'err');
+        await post('/usuarios', { usuario, nombre, rol, password });
+      }
+      toast('Guardado'); m.close(); render('usuarios');
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: isEdit ? 'Editar usuario' : 'Nuevo usuario', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
+
 /* ================= VIEWS MAP + BOOT ================= */
 const VIEWS = {
   dashboard: dashboardView,
@@ -725,6 +794,7 @@ const VIEWS = {
   productos: c => crudView(c, 'productos'),
   insumos: c => crudView(c, 'insumos'),
   lotes: lotesView,
-  etiquetas: etiquetasView
+  etiquetas: etiquetasView,
+  usuarios: usuariosView
 };
 boot();
