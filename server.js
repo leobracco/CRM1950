@@ -46,6 +46,10 @@ async function beforeRecetaTemplado(doc) {
   doc.temp_templado = num(doc.temp_templado, 27);
   doc.max_agua = num(doc.max_agua, 60);
   doc.delta_agua = num(doc.delta_agua, 15);
+  doc.temp_precalentado = num(doc.temp_precalentado, 0);
+  doc.tiempo_mantener_min = num(doc.tiempo_mantener_min, 0);
+  doc.mezcla_on_seg = num(doc.mezcla_on_seg, 0);
+  doc.mezcla_periodo_min = num(doc.mezcla_periodo_min, 0);
   return doc;
 }
 

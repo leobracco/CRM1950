@@ -150,7 +150,11 @@ const RES = {
       { k: 'temp_derretido', l: 'Temp. derretido (°C)', t: 'number' },
       { k: 'temp_templado', l: 'Temp. templado (°C)', t: 'number' },
       { k: 'max_agua', l: 'Máx. temp. agua (°C)', t: 'number' },
-      { k: 'delta_agua', l: 'Delta agua (°C)', t: 'number' }
+      { k: 'delta_agua', l: 'Delta agua (°C)', t: 'number' },
+      { k: 'temp_precalentado', l: 'Precalentado agua (°C, 0=off)', t: 'number' },
+      { k: 'tiempo_mantener_min', l: 'Mantener templado (min, 0=off)', t: 'number' },
+      { k: 'mezcla_on_seg', l: 'Mezclado ON (seg, 0=continuo)', t: 'number' },
+      { k: 'mezcla_periodo_min', l: 'Mezclado período (min)', t: 'number' }
     ]
   },
   clientes: {

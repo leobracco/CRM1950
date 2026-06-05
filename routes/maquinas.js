@@ -50,9 +50,11 @@ router.post('/:id/control', async (req, res) => {
 // Enviar una receta de templado a la máquina.
 router.post('/:id/receta', async (req, res) => {
   if (!gw.online(req.params.id)) return res.status(409).json({ error: 'Máquina desconectada' });
-  const { nombre, temp_derretido, temp_templado, max_agua, delta_agua } = req.body || {};
+  const { nombre, temp_derretido, temp_templado, max_agua, delta_agua,
+          temp_precalentado, tiempo_mantener_min, mezcla_on_seg, mezcla_periodo_min } = req.body || {};
   if (!nombre) return res.status(400).json({ error: 'Falta el nombre de la receta' });
-  const ok = gw.enviar(req.params.id, { t: proto.RECETA, payload: { nombre, temp_derretido, temp_templado, max_agua, delta_agua } });
+  const ok = gw.enviar(req.params.id, { t: proto.RECETA, payload: { nombre, temp_derretido, temp_templado, max_agua, delta_agua,
+          temp_precalentado, tiempo_mantener_min, mezcla_on_seg, mezcla_periodo_min } });
   res.json({ ok });
 });
 
