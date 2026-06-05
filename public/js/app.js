@@ -96,7 +96,8 @@ const TITLES = {
   etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos'],
   usuarios: ['Usuarios', 'Cuentas y accesos del sistema'],
   maquinas: ['Máquinas', 'Control de máquinas de templado CacaoIO'],
-  recetasTemplado: ['Recetas de templado', 'Perfiles de temperatura para las máquinas']
+  recetasTemplado: ['Recetas de templado', 'Perfiles de temperatura para las máquinas'],
+  firmware: ['Firmware', 'Binarios OTA para las máquinas CacaoIO']
 };
 function go(route) { if (!TITLES[route]) route = 'dashboard'; location.hash = '#/' + route; }
 function render(route) {
@@ -800,6 +801,58 @@ function usuarioForm(u) {
   const m = modal({ title: isEdit ? 'Editar usuario' : 'Nuevo usuario', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
 }
 
+/* ================= FIRMWARE (OTA) ================= */
+const fmtBytes = n => { n = Number(n || 0); return n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(2) + ' MB'; };
+
+async function firmwareView(c) {
+  const fws = await get('/firmware');
+  c.innerHTML = `<div class="section-head"><h2>Firmware</h2>
+      <button class="btn btn-primary" id="new">+ Subir firmware</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Versión</th><th>Subido</th><th class="num">Tamaño</th><th>SHA-256</th><th>Notas</th><th></th></tr></thead><tbody>
+    ${fws.length ? fws.map(f => `<tr>
+      <td><b>${esc(f.version)}</b></td><td class="muted">${dtAR(f.subido)}</td>
+      <td class="num">${fmtBytes(f.tamano)}</td>
+      <td><code title="${esc(f.sha256 || '')}">${esc((f.sha256 || '').slice(0, 12))}…</code></td>
+      <td>${esc(f.notas || '')}</td>
+      <td class="row-actions">
+        <a class="btn btn-ghost btn-sm" href="${esc(f.archivo)}" download>Descargar</a>
+        <button class="btn btn-danger btn-sm" data-del="${esc(f._id)}">✕</button></td></tr>`).join('')
+      : `<tr><td colspan="6"><div class="empty">No hay binarios subidos todavía.</div></td></tr>`}</tbody></table></div>`;
+  $('#new').onclick = () => firmwareForm();
+  $$('[data-del]', c).forEach(b => b.onclick = async () => {
+    if (!confirm('¿Eliminar esta versión de firmware? Se borra el binario del servidor.')) return;
+    try { await del('/firmware/' + encodeURIComponent(b.dataset.del)); toast('Eliminado'); render('firmware'); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+function firmwareForm() {
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field"><label>Versión *</label><input class="input" id="fVer" placeholder="1.0.0" autocomplete="off"></div>
+    <div class="field full"><label>Archivo .bin *</label><input class="input" id="fBin" type="file" accept=".bin"></div>
+    <div class="field full"><label>Notas (opcional)</label><input class="input" id="fNot" placeholder="precalentado + mantener + mezclado"></div></div>
+    <p class="muted">El binario sale de <code>.pio/build/CacaoIO/firmware.bin</code> tras compilar. Se calcula el SHA-256 en el servidor.</p>`;
+  const save = btn('Subir', 'btn-primary', async () => {
+    const version = $('#fVer', form).value.trim();
+    const file = $('#fBin', form).files[0];
+    const notas = $('#fNot', form).value.trim();
+    if (!version) return toast('Falta la versión', 'err');
+    if (!file) return toast('Elegí un archivo .bin', 'err');
+    const fd = new FormData();
+    fd.append('version', version); fd.append('notas', notas); fd.append('archivo', file);
+    save.disabled = true; save.textContent = 'Subiendo…';
+    try {
+      const r = await fetch(API + '/firmware', { method: 'POST', body: fd });
+      if (r.status === 401) { location.reload(); return; }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || ('Error ' + r.status));
+      toast('Firmware subido'); m.close(); render('firmware');
+    } catch (e) { toast(e.message, 'err'); save.disabled = false; save.textContent = 'Subir'; }
+  });
+  const m = modal({ title: 'Subir firmware', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
+
 /* ================= MÁQUINAS (CacaoIO) ================= */
 let maquinasSSE = null;
 
@@ -945,6 +998,7 @@ const VIEWS = {
   etiquetas: etiquetasView,
   usuarios: usuariosView,
   maquinas: maquinasView,
-  recetasTemplado: c => crudView(c, 'recetasTemplado')
+  recetasTemplado: c => crudView(c, 'recetasTemplado'),
+  firmware: firmwareView
 };
 boot();
