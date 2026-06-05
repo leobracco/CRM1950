@@ -4,6 +4,9 @@
 module.exports = {
   port: parseInt(process.env.PORT || '3000', 10),
 
+  // URL pública del CRM (la usa el firmware para descargar binarios OTA).
+  publicUrl: process.env.PUBLIC_URL || 'https://leonardobracco.com',
+
   // URL completa de CouchDB con credenciales de admin.
   // Ej: http://admin:password@127.0.0.1:5984
   couchUrl: process.env.COUCH_URL || 'http://admin:password@127.0.0.1:5984',
