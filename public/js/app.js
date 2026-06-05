@@ -94,11 +94,14 @@ const TITLES = {
   insumos: ['Insumos / Stock', 'Materias primas y existencias'],
   lotes: ['Lotes / Trazabilidad', 'Seguimiento y recall'],
   etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos'],
-  usuarios: ['Usuarios', 'Cuentas y accesos del sistema']
+  usuarios: ['Usuarios', 'Cuentas y accesos del sistema'],
+  maquinas: ['Máquinas', 'Control de máquinas de templado CacaoIO'],
+  recetasTemplado: ['Recetas de templado', 'Perfiles de temperatura para las máquinas']
 };
 function go(route) { if (!TITLES[route]) route = 'dashboard'; location.hash = '#/' + route; }
 function render(route) {
   if (!TITLES[route]) route = 'dashboard';
+  if (maquinasSSE && route !== 'maquinas') { maquinasSSE.close(); maquinasSSE = null; }
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.route === route));
   $('#pageTitle').textContent = TITLES[route][0];
   $('#pageSub').textContent = TITLES[route][1];
@@ -139,6 +142,17 @@ const NUT_FIELDS = [
 ];
 
 const RES = {
+  recetasTemplado: {
+    resource: 'recetas-templado',
+    columns: [['nombre', 'Receta'], ['temp_derretido', 'Derretido °C', 'num'], ['temp_templado', 'Templado °C', 'num'], ['max_agua', 'Máx. agua °C', 'num'], ['delta_agua', 'Δ agua °C', 'num']],
+    fields: [
+      { k: 'nombre', l: 'Nombre', t: 'text', req: 1 },
+      { k: 'temp_derretido', l: 'Temp. derretido (°C)', t: 'number' },
+      { k: 'temp_templado', l: 'Temp. templado (°C)', t: 'number' },
+      { k: 'max_agua', l: 'Máx. temp. agua (°C)', t: 'number' },
+      { k: 'delta_agua', l: 'Delta agua (°C)', t: 'number' }
+    ]
+  },
   clientes: {
     resource: 'clientes',
     columns: [['codigo', 'Código'], ['nombre', 'Nombre'], ['cuit', 'CUIT'], ['localidad', 'Localidad'], ['telefono', 'Teléfono']],
@@ -782,6 +796,136 @@ function usuarioForm(u) {
   const m = modal({ title: isEdit ? 'Editar usuario' : 'Nuevo usuario', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
 }
 
+/* ================= MÁQUINAS (CacaoIO) ================= */
+let maquinasSSE = null;
+
+function maquinaCard(m) {
+  const on = m.online;
+  const e = m.estado || {};
+  const ta = (e.temp_choco != null) ? e.temp_choco : '—';
+  const tw = (e.temp_agua != null) ? e.temp_agua : '—';
+  return `<div class="card card-pad maq-card" data-maq="${esc(m._id)}">
+    <div class="maq-head">
+      <b>${esc(m.nombre)}</b>
+      <span class="pill ${on ? 'ok' : 'bad'}">${on ? 'En línea' : 'Desconectada'}</span>
+    </div>
+    <div class="maq-temps">
+      <div><span class="muted">Chocolate</span><b class="t-choco">${esc(ta)}°</b></div>
+      <div><span class="muted">Agua</span><b class="t-agua">${esc(tw)}°</b></div>
+      <div><span class="muted">Etapa</span><b class="t-etapa">${esc(e.etapa_actual || '—')}</b></div>
+    </div>
+    <div class="muted" style="font-size:.74rem">Receta: ${esc(m.recetaActiva || '—')} · FW ${esc(m.fwVersion || '—')}</div>
+    <div class="row-actions" style="margin-top:.6rem">
+      <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>Control</button>
+      <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>Enviar receta</button>
+      <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>Actualizar FW</button>
+    </div>
+    ${on ? '' : '<div class="muted" style="font-size:.74rem;margin-top:.3rem">Operar desde el panel local de la máquina.</div>'}
+  </div>`;
+}
+
+async function maquinasView(c) {
+  const maquinas = await get('/maquinas');
+  c.innerHTML = `<div class="section-head"><h2>Máquinas</h2>
+      <button class="btn btn-primary" id="vincular">+ Vincular máquina</button></div>
+    <div class="maq-grid">${maquinas.length ? maquinas.map(maquinaCard).join('')
+      : '<div class="empty">Sin máquinas vinculadas.</div>'}</div>`;
+
+  $('#vincular').onclick = vincularModal;
+  bindMaquinaButtons(c, maquinas);
+  conectarSSE();
+}
+
+function bindMaquinaButtons(c, maquinas) {
+  const find = id => maquinas.find(x => x._id === id);
+  $$('[data-ctrl]', c).forEach(b => b.onclick = () => controlModal(find(b.dataset.ctrl)));
+  $$('[data-rec]', c).forEach(b => b.onclick = () => enviarRecetaModal(find(b.dataset.rec)));
+  $$('[data-ota]', c).forEach(b => b.onclick = () => otaModal(find(b.dataset.ota)));
+}
+
+function conectarSSE() {
+  if (maquinasSSE) maquinasSSE.close();
+  maquinasSSE = new EventSource(API + '/maquinas/stream');
+  maquinasSSE.onmessage = ev => {
+    let d; try { d = JSON.parse(ev.data); } catch { return; }
+    const card = $(`[data-maq="${d.maquinaId}"]`);
+    if (!card) return;
+    if (d.online != null) {
+      const pill = card.querySelector('.pill');
+      pill.className = 'pill ' + (d.online ? 'ok' : 'bad');
+      pill.textContent = d.online ? 'En línea' : 'Desconectada';
+    }
+    const e = d.estado || {};
+    if (e.temp_choco != null) card.querySelector('.t-choco').textContent = e.temp_choco + '°';
+    if (e.temp_agua != null) card.querySelector('.t-agua').textContent = e.temp_agua + '°';
+    if (e.etapa_actual != null) card.querySelector('.t-etapa').textContent = e.etapa_actual;
+  };
+}
+
+async function vincularModal() {
+  const r = await post('/maquinas/pairing-code');
+  const body = document.createElement('div');
+  body.innerHTML = `<p>En el portal WiFi de la máquina (AP <b>CacaoIO</b>) cargá la red de la fábrica y este código:</p>
+    <div style="font-size:2.4rem;font-weight:800;letter-spacing:.2em;text-align:center;margin:1rem 0">${esc(r.codigo)}</div>
+    <p class="muted">Válido por 10 minutos. La máquina aparecerá acá apenas se conecte.</p>`;
+  modal({ title: 'Vincular máquina', body });
+}
+
+function controlModal(m) {
+  const e = m.estado || {};
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field"><label>Proceso activo</label>
+      <select data-f="proceso_activo"><option value="true">Encendido</option><option value="false" ${!e.proceso_activo ? 'selected' : ''}>Apagado</option></select></div>
+    <div class="field"><label>Motor revolvedor</label>
+      <select data-f="motor"><option value="true">Encendido</option><option value="false" ${!e.motor ? 'selected' : ''}>Apagado</option></select></div>
+    <div class="field"><label>Bomba</label>
+      <select data-f="bomba"><option value="true">Encendida</option><option value="false" ${!e.bomba ? 'selected' : ''}>Apagada</option></select></div>
+  </div>`;
+  const enviar = btn('Enviar', 'btn-primary', async () => {
+    const payload = {
+      proceso_activo: $('[data-f="proceso_activo"]', form).value === 'true',
+      motor: $('[data-f="motor"]', form).value === 'true',
+      bomba: $('[data-f="bomba"]', form).value === 'true'
+    };
+    try { await post('/maquinas/' + encodeURIComponent(m._id) + '/control', payload); toast('Comando enviado'); mm.close(); }
+    catch (err) { toast(err.message, 'err'); }
+  });
+  const mm = modal({ title: 'Control · ' + m.nombre, body: form, footer: [btn('Cancelar', 'btn-ghost', () => mm.close()), enviar] });
+}
+
+async function enviarRecetaModal(m) {
+  const recetas = await get('/recetas-templado');
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="field"><label>Receta de templado</label>
+    <select id="recSel">${recetas.map(r => `<option value="${esc(r._id)}">${esc(r.nombre)}</option>`).join('')}</select></div>`;
+  const enviar = btn('Enviar a la máquina', 'btn-primary', async () => {
+    const r = recetas.find(x => x._id === $('#recSel', body).value);
+    if (!r) return;
+    try {
+      await post('/maquinas/' + encodeURIComponent(m._id) + '/receta',
+        { nombre: r.nombre, temp_derretido: r.temp_derretido, temp_templado: r.temp_templado, max_agua: r.max_agua, delta_agua: r.delta_agua });
+      toast('Receta enviada'); mm.close();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+  const mm = modal({ title: 'Enviar receta · ' + m.nombre, body, footer: [btn('Cancelar', 'btn-ghost', () => mm.close()), enviar] });
+}
+
+async function otaModal(m) {
+  const fws = await get('/firmware');
+  const body = document.createElement('div');
+  body.innerHTML = fws.length ? `<div class="field"><label>Versión de firmware</label>
+      <select id="fwSel">${fws.map(f => `<option value="${esc(f._id)}">${esc(f.version)} · ${dtAR(f.subido)}</option>`).join('')}</select></div>
+    <p class="muted">La máquina descargará y aplicará la actualización, luego se reinicia.</p>`
+    : '<div class="empty">No hay binarios subidos. Subí uno en la sección de firmware.</div>';
+  const footer = fws.length ? [btn('Cancelar', 'btn-ghost', () => mm.close()),
+    btn('Actualizar', 'btn-primary', async () => {
+      try { await post('/maquinas/' + encodeURIComponent(m._id) + '/ota', { firmwareId: $('#fwSel', body).value }); toast('Actualización enviada'); mm.close(); }
+      catch (err) { toast(err.message, 'err'); }
+    })] : [btn('Cerrar', 'btn-ghost', () => mm.close())];
+  const mm = modal({ title: 'Actualizar firmware · ' + m.nombre, body, footer });
+}
+
 /* ================= VIEWS MAP + BOOT ================= */
 const VIEWS = {
   dashboard: dashboardView,
@@ -795,6 +939,8 @@ const VIEWS = {
   insumos: c => crudView(c, 'insumos'),
   lotes: lotesView,
   etiquetas: etiquetasView,
-  usuarios: usuariosView
+  usuarios: usuariosView,
+  maquinas: maquinasView,
+  recetasTemplado: c => crudView(c, 'recetasTemplado')
 };
 boot();

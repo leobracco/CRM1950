@@ -213,3 +213,9 @@ textarea{min-height:74px;resize:vertical}
   .menu-btn{display:inline-flex !important}
 }
 .menu-btn{display:none}
+.maq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem}
+.maq-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem}
+.maq-temps{display:flex;gap:1.2rem;margin:.4rem 0}
+.maq-temps div{display:flex;flex-direction:column}
+.maq-temps b{font-size:1.4rem}
+.maq-card .muted{display:block}
