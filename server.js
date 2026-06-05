@@ -86,6 +86,7 @@ api.use('/etiquetas', require('./routes/etiquetas'));
 api.use('/movimientos', require('./routes/movimientos'));
 api.use('/dashboard', require('./routes/dashboard'));
 api.use('/maquinas', require('./routes/maquinas'));
+api.use('/firmware', require('./routes/firmware'));
 
 // Cambiar la propia contraseña (cualquier usuario autenticado)
 api.post('/cambiar-password', async (req, res) => {
