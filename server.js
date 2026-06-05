@@ -9,6 +9,8 @@ const database = require('./lib/db');
 const auth = require('./lib/auth');
 const crud = require('./lib/crud');
 const seed = require('./lib/seed');
+const cloudGateway = require('./lib/cloudGateway');
+const maquinasLib = require('./lib/maquinas');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -42,6 +44,16 @@ async function beforeReceta(doc) {
 
 // ---- API pública (sin auth) ----
 app.use('/api', auth.router);
+
+// Alta de máquina (pública: el dispositivo aún no tiene token).
+app.post('/api/maquinas/pairing', async (req, res) => {
+  const { codigo, serial, fwVersion } = req.body || {};
+  if (!codigo) return res.status(400).json({ error: 'Falta el código' });
+  try {
+    const r = await maquinasLib.vincular({ codigo, serial, fwVersion });
+    res.json(r); // { maquinaId, token }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
 
 // Trazabilidad pública por código de lote (QR del rótulo)
 app.get('/t/:codigo', async (req, res) => {
@@ -110,6 +122,9 @@ api.get('/empresa', (req, res) => res.json(cfg.empresa));
 
 app.use('/api', api);
 
+// Binarios de firmware para descarga OTA del dispositivo (público).
+app.use('/firmware', express.static(path.join(__dirname, 'firmware')));
+
 // ---- Frontend (SPA) ----
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -147,9 +162,10 @@ function publicTrace(lote, producto, serie) {
       await seed.ensureSampleData();
     } catch (e) { console.warn('[seed]', e.message); }
   }
-  app.listen(cfg.port, () => {
+  const httpServer = app.listen(cfg.port, () => {
     console.log(`\n  Fábrica de Alfajores 1950 — ERP`);
     console.log(`  ▶ http://localhost:${cfg.port}`);
     console.log(`  Usuario: ${cfg.bootstrapAdmin.usuario}  Clave: ${cfg.bootstrapAdmin.password}\n`);
   });
+  cloudGateway.attach(httpServer);
 })();
