@@ -41,6 +41,13 @@ async function beforeReceta(doc) {
   doc.items = (doc.items || []).map(i => ({ ...i, cantidad: num(i.cantidad) }));
   return doc;
 }
+async function beforeRecetaTemplado(doc) {
+  doc.temp_derretido = num(doc.temp_derretido, 45);
+  doc.temp_templado = num(doc.temp_templado, 27);
+  doc.max_agua = num(doc.max_agua, 60);
+  doc.delta_agua = num(doc.delta_agua, 15);
+  return doc;
+}
 
 // ---- API pública (sin auth) ----
 app.use('/api', auth.router);
@@ -76,6 +83,7 @@ api.use(auth.requireAuth);
 api.use('/insumos', crud('insumo', { beforeWrite: beforeInsumo }));
 api.use('/productos', crud('producto', { beforeWrite: beforeProducto }));
 api.use('/recetas', crud('receta', { beforeWrite: beforeReceta }));
+api.use('/recetas-templado', crud('receta_templado', { beforeWrite: beforeRecetaTemplado, searchFields: ['nombre'] }));
 api.use('/clientes', crud('cliente'));
 api.use('/proveedores', crud('proveedor'));
 api.use('/compras', require('./routes/compras'));
