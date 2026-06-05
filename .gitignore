@@ -1,3 +1,5 @@
 node_modules/
 .env
 *.log
+.claude/
+.playwright-mcp/
