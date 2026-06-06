@@ -96,6 +96,7 @@ const TITLES = {
   etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos'],
   usuarios: ['Usuarios', 'Cuentas y accesos del sistema'],
   maquinas: ['Máquinas', 'Control de máquinas de templado CacaoIO'],
+  procesos: ['Procesos', 'Curvas de temperatura y análisis con IA'],
   recetasTemplado: ['Recetas de templado', 'Perfiles de temperatura para las máquinas'],
   firmware: ['Firmware', 'Binarios OTA para las máquinas CacaoIO']
 };
@@ -983,6 +984,143 @@ async function otaModal(m) {
   const mm = modal({ title: 'Actualizar firmware · ' + m.nombre, body, footer });
 }
 
+/* ================= PROCESOS (curvas de temperatura + IA) ================= */
+let chartJsPromise = null;
+function loadChartJs() {
+  if (window.Chart) return Promise.resolve();
+  if (chartJsPromise) return chartJsPromise;
+  chartJsPromise = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar Chart.js'));
+    document.head.appendChild(s);
+  });
+  return chartJsPromise;
+}
+
+const fmtDur = seg => {
+  seg = Math.round(Number(seg || 0));
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+};
+const ETAPA_NOMBRE = { 0: 'Precalentado', 1: 'Derretido', 2: 'Templado', 3: 'Mantener' };
+
+async function procesosView(c) {
+  const [procs, maquinas] = await Promise.all([get('/procesos'), get('/maquinas')]);
+  const nombreMaq = id => { const m = maquinas.find(x => x._id === id); return m ? m.nombre : (id || '—'); };
+  c.innerHTML = `<div class="section-head"><h2>Procesos de templado</h2></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Máquina</th><th>Receta</th><th>Inicio</th><th class="num">Duración</th>
+      <th class="num">Choco prom/máx</th><th>Estado</th><th>IA</th><th></th></tr></thead><tbody>
+    ${procs.length ? procs.map(p => {
+      const r = p.resumen || {};
+      const enCurso = !p.fin;
+      const dur = enCurso ? '—' : fmtDur(r.duracionSeg);
+      const choco = (r.chocoProm != null) ? `${r.chocoProm}° / ${r.chocoMax}°` : '—';
+      return `<tr>
+        <td><b>${esc(nombreMaq(p.maquinaId))}</b></td>
+        <td>${esc(p.receta || '—')}</td>
+        <td class="muted">${dtAR(p.inicio)}</td>
+        <td class="num">${dur}</td>
+        <td class="num">${choco}</td>
+        <td><span class="pill ${enCurso ? 'warn' : 'ok'}">${enCurso ? 'En curso' : 'Finalizado'}</span></td>
+        <td>${p.tieneAnalisis ? '✓' : '—'}</td>
+        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-ver="${esc(p._id)}">Ver curva</button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="8"><div class="empty">Todavía no se registraron procesos. Aparecen cuando una máquina vinculada inicia una elaboración.</div></td></tr>`}
+    </tbody></table></div>`;
+  $$('[data-ver]', c).forEach(b => b.onclick = () => procesoDetalle(b.dataset.ver, nombreMaq));
+}
+
+let procChart = null;
+async function procesoDetalle(id, nombreMaq) {
+  const c = $('#content');
+  c.innerHTML = '<div class="empty">Cargando curva…</div>';
+  let doc;
+  try { [doc] = await Promise.all([get('/procesos/' + encodeURIComponent(id)), loadChartJs()]); }
+  catch (e) { c.innerHTML = `<div class="card card-pad" style="color:var(--red)">Error: ${esc(e.message)}</div>`; return; }
+
+  const r = doc.resumen || {};
+  const seg = r.segPorEtapa || {};
+  const etapasTxt = Object.keys(seg).sort().map(k => `${ETAPA_NOMBRE[k] || ('Etapa ' + k)}: ${fmtDur(seg[k])}`).join(' · ') || '—';
+  const nombre = nombreMaq ? nombreMaq(doc.maquinaId) : (doc.serial || doc.maquinaId);
+
+  c.innerHTML = `<div class="section-head">
+      <h2>Curva · ${esc(nombre)}</h2>
+      <button class="btn btn-ghost" id="volver">← Volver</button></div>
+    <div class="card card-pad" style="margin-bottom:1rem">
+      <div class="muted" style="font-size:.8rem;margin-bottom:.4rem">
+        Receta <b>${esc(doc.receta || '—')}</b> · Inicio ${dtAR(doc.inicio)} · ${doc.fin ? 'Duración ' + fmtDur(r.duracionSeg) : 'En curso'}
+      </div>
+      <div style="position:relative;height:340px"><canvas id="procCanvas"></canvas></div>
+      <div class="maq-temps" style="margin-top:.8rem">
+        <div><span class="muted">Choco mín/prom/máx</span><b>${r.chocoMin ?? '—'}° / ${r.chocoProm ?? '—'}° / ${r.chocoMax ?? '—'}°</b></div>
+        <div><span class="muted">Agua mín/máx</span><b>${r.aguaMin ?? '—'}° / ${r.aguaMax ?? '—'}°</b></div>
+        <div><span class="muted">Muestras</span><b>${(doc.samples || []).length}</b></div>
+      </div>
+      <div class="muted" style="font-size:.78rem;margin-top:.5rem">Tiempo por etapa: ${esc(etapasTxt)}</div>
+    </div>
+    <div class="card card-pad">
+      <div class="section-head" style="margin:0 0 .6rem"><h3 style="margin:0">Análisis con IA</h3>
+        <button class="btn btn-primary btn-sm" id="analizar">${doc.analisisIA ? 'Reanalizar' : 'Analizar con IA'}</button></div>
+      <div id="iaBox" class="ia-box">${doc.analisisIA
+        ? renderIA(doc.analisisIA)
+        : '<div class="muted">Generá un análisis automático de esta corrida (calidad del templado, anomalías y recomendaciones).</div>'}</div>
+    </div>`;
+
+  $('#volver').onclick = () => render('procesos');
+  dibujarCurva(doc.samples || []);
+
+  $('#analizar').onclick = async () => {
+    const b = $('#analizar'); b.disabled = true; b.textContent = 'Analizando…';
+    $('#iaBox').innerHTML = '<div class="muted">Consultando a la IA, puede tardar unos segundos…</div>';
+    try {
+      const a = await post('/procesos/' + encodeURIComponent(id) + '/analizar');
+      $('#iaBox').innerHTML = renderIA(a);
+      b.textContent = 'Reanalizar';
+    } catch (e) {
+      $('#iaBox').innerHTML = `<div style="color:var(--red)">${esc(e.message)}</div>`;
+      b.textContent = 'Analizar con IA';
+    } finally { b.disabled = false; }
+  };
+}
+
+function renderIA(a) {
+  const txt = esc(a.texto || '').replace(/\n/g, '<br>');
+  return `<div class="ia-text">${txt}</div>
+    <div class="muted" style="font-size:.72rem;margin-top:.6rem">${esc(a.modelo || '')} · ${dtAR(a.fecha)}</div>`;
+}
+
+function dibujarCurva(samples) {
+  if (procChart) { procChart.destroy(); procChart = null; }
+  // Submuestreo defensivo para no dibujar miles de puntos.
+  const paso = Math.max(1, Math.ceil(samples.length / 800));
+  const s = samples.filter((_, i) => i % paso === 0);
+  const t0 = s.length ? new Date(s[0].t).getTime() : 0;
+  const labels = s.map(x => +(((new Date(x.t).getTime() - t0) / 60000).toFixed(1)));
+  const ctx = $('#procCanvas').getContext('2d');
+  procChart = new window.Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Chocolate °C', data: s.map(x => x.tc), borderColor: '#c0392b', backgroundColor: 'transparent', tension: .25, pointRadius: 0, borderWidth: 2 },
+        { label: 'Agua °C', data: s.map(x => x.ta), borderColor: '#2980b9', backgroundColor: 'transparent', tension: .25, pointRadius: 0, borderWidth: 1.5 },
+        { label: 'Setpoint °C', data: s.map(x => x.sp), borderColor: '#7f8c8d', backgroundColor: 'transparent', borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { title: { display: true, text: 'Minutos' }, ticks: { maxTicksLimit: 12 } },
+        y: { title: { display: true, text: '°C' } }
+      },
+      plugins: { legend: { position: 'top' } }
+    }
+  });
+}
+
 /* ================= VIEWS MAP + BOOT ================= */
 const VIEWS = {
   dashboard: dashboardView,
@@ -998,6 +1136,7 @@ const VIEWS = {
   etiquetas: etiquetasView,
   usuarios: usuariosView,
   maquinas: maquinasView,
+  procesos: procesosView,
   recetasTemplado: c => crudView(c, 'recetasTemplado'),
   firmware: firmwareView
 };

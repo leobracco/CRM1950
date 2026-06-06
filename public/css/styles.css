@@ -109,6 +109,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .pill.info{background:var(--blue-bg);color:var(--blue)}
 .empty{padding:3rem 1rem;text-align:center;color:var(--muted)}
 .row-actions{display:flex;gap:.35rem;justify-content:flex-end}
+.ia-box{background:var(--blue-bg,#eef4fb);border-radius:10px;padding:.9rem 1rem;font-size:.9rem;line-height:1.5}
+.ia-text{white-space:normal}
 
 /* ---------- Forms ---------- */
 .field{margin-bottom:.9rem}

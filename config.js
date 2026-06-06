@@ -16,6 +16,11 @@ module.exports = {
 
   sessionSecret: process.env.SESSION_SECRET || 'cambiar-este-secreto-en-produccion-1950',
 
+  // Análisis IA de curvas de temperatura (Google Gemini, free tier).
+  // Key gratuita en https://aistudio.google.com/apikey
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+
   // Usuario admin que se crea automáticamente si la base está vacía
   bootstrapAdmin: {
     usuario: process.env.ADMIN_USER || 'admin',
