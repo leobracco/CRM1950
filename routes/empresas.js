@@ -35,6 +35,8 @@ router.post('/', auth.requireSuperadmin, async (req, res) => {
   const b = req.body || {};
   if (!b.nombre || !b.adminUsuario || !b.adminPassword)
     return res.status(400).json({ error: 'Faltan nombre, adminUsuario o adminPassword' });
+  if (String(b.adminPassword).length < 4)
+    return res.status(400).json({ error: 'La contraseña del admin debe tener al menos 4 caracteres' });
   if (await database.tryGet(auth.userDocId(b.adminUsuario)))
     return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
   try {
@@ -46,8 +48,15 @@ router.post('/', auth.requireSuperadmin, async (req, res) => {
       email: b.email || '', telefono: b.telefono || '',
       activo: true, creado: new Date().toISOString(), actualizado: new Date().toISOString()
     };
-    await database.insert(empresa);
-    await auth.crearUsuario({ usuario: b.adminUsuario, password: b.adminPassword, nombre: b.adminNombre || b.adminUsuario, rol: 'admin', empresaId: slug });
+    const creada = await database.insert(empresa);
+    try {
+      await auth.crearUsuario({ usuario: b.adminUsuario, password: b.adminPassword, nombre: b.adminNombre || b.adminUsuario, rol: 'admin', empresaId: slug });
+    } catch (eUser) {
+      // Compensación: si no se pudo crear el admin, borramos la empresa para no dejarla huérfana.
+      try { await database.remove(creada._id, creada._rev); }
+      catch (eDel) { console.error('[empresas] No se pudo revertir la empresa huerfana', creada._id, eDel.message); }
+      throw eUser;
+    }
     res.status(201).json(empresa);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
