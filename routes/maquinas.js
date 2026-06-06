@@ -83,10 +83,13 @@ router.put('/:id', auth.requireRole('admin'), async (req, res) => {
 // Lanzar OTA: envía URL del binario + sha256 al dispositivo (admin).
 // El firmware es GLOBAL (no lleva empresaId); solo la máquina destino se verifica por empresa.
 router.post('/:id/ota', auth.requireRole('admin'), async (req, res) => {
+  let maq;
+  try {
+    maq = await database.get(req.params.id);
+    if (!req.esSuperadmin && maq.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrada' });
+  } catch (e) { return res.status(404).json({ error: 'No encontrada' }); }
   if (!gw.online(req.params.id)) return res.status(409).json({ error: 'Máquina desconectada' });
   try {
-    const maq = await database.get(req.params.id);
-    if (!req.esSuperadmin && maq.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrada' });
     const fw = await database.get(req.body.firmwareId);
     const cfg = require('../config');
     const url = `${cfg.publicUrl}${fw.archivo}`;
