@@ -29,6 +29,14 @@ router.post('/', async (req, res) => {
     const { proveedorId, items = [], obs } = req.body || {};
     if (!items.length) return res.status(400).json({ error: 'La compra no tiene ítems' });
 
+    // Validar pertenencia del proveedor a la empresa
+    if (proveedorId) {
+      const prov = await database.tryGet(proveedorId);
+      if (prov && !req.esSuperadmin && prov.empresaId !== req.empresaId) {
+        return res.status(400).json({ error: 'Proveedor inválido' });
+      }
+    }
+
     // Validar pertenencia de los insumos referenciados a la empresa
     for (const it of items) {
       if (!it.insumoId) continue;

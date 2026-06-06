@@ -28,6 +28,14 @@ router.post('/', async (req, res) => {
     const { clienteId, items = [], descuento = 0, obs } = req.body || {};
     if (!items.length) return res.status(400).json({ error: 'La venta no tiene ítems' });
 
+    // Validar pertenencia del cliente a la empresa
+    if (clienteId) {
+      const cli = await database.tryGet(clienteId);
+      if (cli && !req.esSuperadmin && cli.empresaId !== req.empresaId) {
+        return res.status(400).json({ error: 'Cliente inválido' });
+      }
+    }
+
     // Validación de stock disponible
     for (const it of items) {
       if (!it.productoId) continue;
