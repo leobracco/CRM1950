@@ -15,7 +15,8 @@ router.get('/', async (req, res) => {
     const docs = await database.findByType('procterm', {
       selector,
       fields: ['_id', 'maquinaId', 'serial', 'receta', 'inicio', 'fin', 'resumen', 'ultimaMuestra', 'analisisIA'],
-      limit: 1000
+      limit: 1000,
+      empresaId: req.empresaId || undefined
     });
     docs.sort((a, b) => String(b.inicio || '').localeCompare(String(a.inicio || '')));
     res.json(docs.map(d => ({ ...d, tieneAnalisis: !!d.analisisIA, analisisIA: undefined })));
@@ -26,6 +27,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
+    if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'Proceso no encontrado' });
     res.json(doc);
   } catch (e) { res.status(404).json({ error: 'Proceso no encontrado' }); }
 });
@@ -33,6 +35,7 @@ router.get('/:id', async (req, res) => {
 router.delete('/:id', auth.requireRole('admin'), async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
+    if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
     await database.remove(doc._id, doc._rev);
     res.json({ ok: true });
   } catch (e) { res.status(404).json({ error: 'No encontrado' }); }
@@ -105,6 +108,7 @@ router.post('/:id/analizar', async (req, res) => {
   }
   try {
     const doc = await database.get(req.params.id);
+    if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!doc.samples || !doc.samples.length) return res.status(400).json({ error: 'El proceso no tiene muestras' });
     const texto = await analizarConGemini(construirPrompt(doc));
     doc.analisisIA = { texto, modelo: cfg.geminiModel, fecha: new Date().toISOString() };

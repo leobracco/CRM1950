@@ -14,7 +14,7 @@ router.get('/stream', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders();
   res.write(': conectado\n\n');
-  gw.addSseSubscriber(res);
+  gw.addSseSubscriber(res, req.empresaId, req.esSuperadmin);
   req.on('close', () => gw.removeSseSubscriber(res));
 });
 
