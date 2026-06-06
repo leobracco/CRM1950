@@ -17,15 +17,18 @@ function addDays(iso, days) {
 
 router.get('/', async (req, res) => {
   try {
-    const docs = await database.findByType('orden', { limit: 5000 });
+    const docs = await database.findByType('orden', { limit: 5000, empresaId: req.empresaId || undefined });
     docs.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
     res.json(docs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/:id', async (req, res) => {
-  try { res.json(await database.get(req.params.id)); }
-  catch (e) { res.status(404).json({ error: 'No encontrado' }); }
+  try {
+    const orden = await database.get(req.params.id);
+    if (!req.esSuperadmin && orden.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
+    res.json(orden);
+  } catch (e) { res.status(404).json({ error: 'No encontrado' }); }
 });
 
 // POST /api/fabricacion { productoId, cantidad, recetaId?, consumos?, fechaElaboracion?, force?, obs }
@@ -36,12 +39,14 @@ router.post('/', async (req, res) => {
     if (!productoId || !cantidad) return res.status(400).json({ error: 'Falta producto o cantidad' });
 
     const producto = await database.get(productoId);
+    if (!req.esSuperadmin && producto.empresaId !== req.empresaId) return res.status(400).json({ error: 'Producto inválido' });
     const fechaElaboracion = req.body.fechaElaboracion || new Date().toISOString();
 
     // Determinar consumos de insumos
     let consumos = [];
     if (recetaId) {
       const receta = await database.get(recetaId);
+      if (!req.esSuperadmin && receta.empresaId !== req.empresaId) return res.status(400).json({ error: 'Receta inválida' });
       const rinde = Number(receta.rinde || 1);
       const factor = cantidad / rinde;
       consumos = (receta.items || []).map(i => ({
@@ -51,6 +56,14 @@ router.post('/', async (req, res) => {
       }));
     } else if (Array.isArray(req.body.consumos)) {
       consumos = req.body.consumos.map(c => ({ ...c, cantidad: Number(c.cantidad) }));
+    }
+
+    // Validar pertenencia de los insumos consumidos a la empresa
+    for (const c of consumos) {
+      const ins = await database.tryGet(c.insumoId);
+      if (ins && !req.esSuperadmin && ins.empresaId !== req.empresaId) {
+        return res.status(400).json({ error: 'Insumo inválido' });
+      }
     }
 
     // Validar stock de insumos
@@ -64,7 +77,8 @@ router.post('/', async (req, res) => {
     }
 
     // Crear lote
-    const seq = await database.nextSeq('orden');
+    const seq = await database.nextSeq(req.empresaId, 'orden');
+    const ordenId = `orden:${req.empresaId}:${String(seq).padStart(6, '0')}`;
     const loteCodigo = `${yymmdd(fechaElaboracion)}-${String(seq).padStart(4, '0')}`;
     const fechaVencimiento = addDays(fechaElaboracion, producto.vidaUtilDias || 90);
 
@@ -76,9 +90,10 @@ router.post('/', async (req, res) => {
       costoTotal += costoUnit * c.cantidad;
       c.costoUnit = costoUnit;
       await stock.movimiento({
+        empresaId: req.empresaId,
         articuloId: c.insumoId, articuloTipo: 'insumo',
         cantidad: -Math.abs(c.cantidad), motivo: 'fabricacion',
-        refType: 'orden', refId: `orden:${String(seq).padStart(6, '0')}`,
+        refType: 'orden', refId: ordenId,
         lote: loteCodigo, costoUnit, usuario: req.session.user?.usuario
       });
     }
@@ -86,17 +101,17 @@ router.post('/', async (req, res) => {
     const costoUnit = Number((costoTotal / cantidad).toFixed(4));
 
     const lote = await database.insert({
-      _id: `lote:${loteCodigo}`, type: 'lote', codigo: loteCodigo,
+      _id: `lote:${req.empresaId}:${loteCodigo}`, type: 'lote', empresaId: req.empresaId, codigo: loteCodigo,
       productoId, productoNombre: producto.nombre,
       cantidad, fechaElaboracion, fechaVencimiento,
-      ordenId: `orden:${String(seq).padStart(6, '0')}`,
+      ordenId,
       estado: 'liberado', costoUnit,
       creado: new Date().toISOString()
     });
 
     const orden = await database.insert({
-      _id: `orden:${String(seq).padStart(6, '0')}`,
-      type: 'orden', numero: `OF-${String(seq).padStart(6, '0')}`,
+      _id: ordenId,
+      type: 'orden', empresaId: req.empresaId, numero: `OF-${String(seq).padStart(6, '0')}`,
       productoId, productoNombre: producto.nombre, cantidad,
       recetaId: recetaId || null, consumos, loteCodigo,
       fecha: fechaElaboracion, fechaVencimiento,
@@ -107,6 +122,7 @@ router.post('/', async (req, res) => {
 
     // Producir stock del producto
     await stock.movimiento({
+      empresaId: req.empresaId,
       articuloId: productoId, articuloTipo: 'producto',
       cantidad: Math.abs(cantidad), motivo: 'fabricacion',
       refType: 'orden', refId: orden._id, lote: loteCodigo,

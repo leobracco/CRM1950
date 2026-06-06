@@ -12,13 +12,14 @@ function inMonth(iso, ref = new Date()) {
 
 router.get('/', async (req, res) => {
   try {
+    const emp = req.empresaId || undefined;
     const [ventas, compras, productos, insumos, ordenes, lotes] = await Promise.all([
-      database.findByType('venta', { limit: 5000 }),
-      database.findByType('compra', { limit: 5000 }),
-      database.findByType('producto', { limit: 5000 }),
-      database.findByType('insumo', { limit: 5000 }),
-      database.findByType('orden', { limit: 5000 }),
-      database.findByType('lote', { limit: 5000 })
+      database.findByType('venta', { limit: 5000, empresaId: emp }),
+      database.findByType('compra', { limit: 5000, empresaId: emp }),
+      database.findByType('producto', { limit: 5000, empresaId: emp }),
+      database.findByType('insumo', { limit: 5000, empresaId: emp }),
+      database.findByType('orden', { limit: 5000, empresaId: emp }),
+      database.findByType('lote', { limit: 5000, empresaId: emp })
     ]);
 
     const ventasMes = ventas.filter(v => inMonth(v.fecha));

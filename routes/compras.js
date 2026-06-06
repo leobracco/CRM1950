@@ -9,15 +9,18 @@ const router = express.Router();
 // GET /api/compras
 router.get('/', async (req, res) => {
   try {
-    const docs = await database.findByType('compra', { limit: 5000 });
+    const docs = await database.findByType('compra', { limit: 5000, empresaId: req.empresaId || undefined });
     docs.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
     res.json(docs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/:id', async (req, res) => {
-  try { res.json(await database.get(req.params.id)); }
-  catch (e) { res.status(404).json({ error: 'No encontrado' }); }
+  try {
+    const compra = await database.get(req.params.id);
+    if (!req.esSuperadmin && compra.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
+    res.json(compra);
+  } catch (e) { res.status(404).json({ error: 'No encontrado' }); }
 });
 
 // POST /api/compras  { proveedorId, fecha, items:[{insumoId, descripcion, cantidad, costoUnit}], obs }
@@ -26,7 +29,16 @@ router.post('/', async (req, res) => {
     const { proveedorId, items = [], obs } = req.body || {};
     if (!items.length) return res.status(400).json({ error: 'La compra no tiene ítems' });
 
-    const seq = await database.nextSeq('compra');
+    // Validar pertenencia de los insumos referenciados a la empresa
+    for (const it of items) {
+      if (!it.insumoId) continue;
+      const ins = await database.tryGet(it.insumoId);
+      if (ins && !req.esSuperadmin && ins.empresaId !== req.empresaId) {
+        return res.status(400).json({ error: 'Insumo inválido' });
+      }
+    }
+
+    const seq = await database.nextSeq(req.empresaId, 'compra');
     const numero = `OC-${String(seq).padStart(6, '0')}`;
     const fecha = req.body.fecha || new Date().toISOString();
     let total = 0;
@@ -41,8 +53,8 @@ router.post('/', async (req, res) => {
     }
 
     const compra = await database.insert({
-      _id: `compra:${String(seq).padStart(6, '0')}`,
-      type: 'compra', numero, proveedorId,
+      _id: `compra:${req.empresaId}:${String(seq).padStart(6, '0')}`,
+      type: 'compra', empresaId: req.empresaId, numero, proveedorId,
       fecha, items: detalle, total: Number(total.toFixed(2)),
       obs: obs || '', estado: 'recibida',
       usuario: req.session.user?.usuario,
@@ -53,6 +65,7 @@ router.post('/', async (req, res) => {
     for (const it of detalle) {
       if (!it.insumoId) continue;
       await stock.movimiento({
+        empresaId: req.empresaId,
         articuloId: it.insumoId, articuloTipo: 'insumo',
         cantidad: it.cantidad, motivo: 'compra',
         refType: 'compra', refId: compra._id,

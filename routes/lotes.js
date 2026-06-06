@@ -7,25 +7,29 @@ const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    const docs = await database.findByType('lote', { limit: 5000 });
+    const docs = await database.findByType('lote', { limit: 5000, empresaId: req.empresaId || undefined });
     docs.sort((a, b) => (b.fechaElaboracion || '').localeCompare(a.fechaElaboracion || ''));
     res.json(docs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/:id', async (req, res) => {
-  try { res.json(await database.get(req.params.id)); }
-  catch (e) { res.status(404).json({ error: 'No encontrado' }); }
+  try {
+    const lote = await database.get(req.params.id);
+    if (!req.esSuperadmin && lote.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
+    res.json(lote);
+  } catch (e) { res.status(404).json({ error: 'No encontrado' }); }
 });
 
 // GET /api/lotes/:id/trazabilidad  -> reporte de recall
 router.get('/:id/trazabilidad', async (req, res) => {
   try {
     const lote = await database.get(req.params.id);
+    if (!req.esSuperadmin && lote.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
     const orden = lote.ordenId ? await database.tryGet(lote.ordenId) : null;
 
     // Movimientos asociados al lote
-    const movs = await database.find({ selector: { type: 'movimiento', lote: lote.codigo }, limit: 5000 });
+    const movs = await database.find({ selector: { type: 'movimiento', empresaId: req.empresaId, lote: lote.codigo }, limit: 5000 });
 
     // Insumos consumidos (origen) con proveedor del último ingreso
     const insumos = [];

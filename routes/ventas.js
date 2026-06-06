@@ -8,15 +8,18 @@ const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    const docs = await database.findByType('venta', { limit: 5000 });
+    const docs = await database.findByType('venta', { limit: 5000, empresaId: req.empresaId || undefined });
     docs.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
     res.json(docs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/:id', async (req, res) => {
-  try { res.json(await database.get(req.params.id)); }
-  catch (e) { res.status(404).json({ error: 'No encontrado' }); }
+  try {
+    const venta = await database.get(req.params.id);
+    if (!req.esSuperadmin && venta.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
+    res.json(venta);
+  } catch (e) { res.status(404).json({ error: 'No encontrado' }); }
 });
 
 // POST /api/ventas { clienteId, fecha, items:[{productoId, descripcion, cantidad, precioUnit, lote}], descuento, obs }
@@ -29,12 +32,15 @@ router.post('/', async (req, res) => {
     for (const it of items) {
       if (!it.productoId) continue;
       const p = await database.tryGet(it.productoId);
+      if (p && !req.esSuperadmin && p.empresaId !== req.empresaId) {
+        return res.status(400).json({ error: 'Producto inválido' });
+      }
       if (p && Number(p.stock || 0) < Number(it.cantidad)) {
         return res.status(409).json({ error: `Stock insuficiente de ${p.nombre} (hay ${p.stock})` });
       }
     }
 
-    const seq = await database.nextSeq('venta');
+    const seq = await database.nextSeq(req.empresaId, 'venta');
     const numero = `FV-${String(seq).padStart(6, '0')}`;
     const fecha = req.body.fecha || new Date().toISOString();
     let total = 0;
@@ -47,7 +53,7 @@ router.post('/', async (req, res) => {
       // FEFO: si no se indicó lote, asignar el de vencimiento más próximo
       let lote = it.lote || null;
       if (!lote && it.productoId) {
-        const lotes = await database.find({ selector: { type: 'lote', productoId: it.productoId }, limit: 1000 });
+        const lotes = await database.find({ selector: { type: 'lote', empresaId: req.empresaId, productoId: it.productoId }, limit: 1000 });
         lotes.sort((a, b) => (a.fechaVencimiento || '').localeCompare(b.fechaVencimiento || ''));
         if (lotes.length) lote = lotes[0].codigo;
       }
@@ -56,8 +62,8 @@ router.post('/', async (req, res) => {
     total = Number((total - Number(descuento || 0)).toFixed(2));
 
     const venta = await database.insert({
-      _id: `venta:${String(seq).padStart(6, '0')}`,
-      type: 'venta', numero, clienteId,
+      _id: `venta:${req.empresaId}:${String(seq).padStart(6, '0')}`,
+      type: 'venta', empresaId: req.empresaId, numero, clienteId,
       fecha, items: detalle, descuento: Number(descuento || 0),
       total, obs: obs || '', estado: 'confirmada',
       usuario: req.session.user?.usuario,
@@ -67,6 +73,7 @@ router.post('/', async (req, res) => {
     for (const it of detalle) {
       if (!it.productoId) continue;
       await stock.movimiento({
+        empresaId: req.empresaId,
         articuloId: it.productoId, articuloTipo: 'producto',
         cantidad: -Math.abs(it.cantidad), motivo: 'venta',
         refType: 'venta', refId: venta._id, lote: it.lote || null,
