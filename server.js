@@ -84,6 +84,17 @@ app.get('/t/envio/:tracking', (req, res) => {
 // ---- A partir de acá, todo requiere sesión ----
 const api = express.Router();
 api.use(auth.requireAuth);
+
+// Resuelve la empresa del contexto para cada request autenticado.
+// - Usuario de empresa: su propia empresaId.
+// - Superadmin: la "empresa activa" elegida (session.empresaActiva), o null.
+api.use((req, res, next) => {
+  const u = req.session.user;
+  req.empresaId = (u.rol === 'superadmin') ? (req.session.empresaActiva || null) : (u.empresaId || null);
+  req.esSuperadmin = (u.rol === 'superadmin');
+  next();
+});
+
 api.use('/insumos', crud('insumo', { beforeWrite: beforeInsumo }));
 api.use('/productos', crud('producto', { beforeWrite: beforeProducto }));
 api.use('/recetas', crud('receta', { beforeWrite: beforeReceta }));
