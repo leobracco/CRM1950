@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Idioma
+
+**Respondé siempre en castellano (español rioplatense).** El usuario, el dominio y la UI están en castellano; mantené los términos de dominio en castellano (insumos, recetas, lotes, etc.).
+
 ## Overview
 
 ERP/CRM for an alfajor (Argentine cookie) factory: inventory of raw materials (insumos), sales, purchases, manufacturing with recipe consumption, batch (lote) traceability, regulatory labels (CAA / Ley 27.642 octagonal warning seals), per-unit serial numbers, and shipping labels.
