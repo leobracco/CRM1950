@@ -111,6 +111,7 @@ api.use('/dashboard', require('./routes/dashboard'));
 api.use('/maquinas', require('./routes/maquinas'));
 api.use('/procesos', require('./routes/procesos'));
 api.use('/firmware', require('./routes/firmware'));
+api.use('/empresas', require('./routes/empresas'));
 
 // Cambiar la propia contraseña (cualquier usuario autenticado)
 api.post('/cambiar-password', async (req, res) => {
@@ -144,7 +145,14 @@ api.put('/usuarios/:usuario', auth.requireRole('admin'), async (req, res) => {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
-api.get('/empresa', (req, res) => res.json(cfg.empresa));
+// Datos de la empresa del contexto (para rótulos/UI); cae a cfg.empresa si no hay.
+api.get('/empresa', async (req, res) => {
+  try {
+    if (!req.empresaId) return res.json(cfg.empresa);
+    const emp = await database.tryGet(database.empresaDocId(req.empresaId));
+    res.json(emp || cfg.empresa);
+  } catch (e) { res.json(cfg.empresa); }
+});
 
 app.use('/api', api);
 
