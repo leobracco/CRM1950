@@ -31,9 +31,10 @@ router.get('/rotulo/:loteId', async (req, res) => {
       }
     }
 
+    const empresa = req.empresaId ? (await database.tryGet(database.empresaDocId(req.empresaId))) || cfg.empresa : cfg.empresa;
     const url = `${baseUrl(req)}/t/${lote.codigo}`;
     res.json({
-      empresa: cfg.empresa,
+      empresa,
       producto: {
         nombre: producto.nombre, codigo: producto.codigo,
         pesoNeto: producto.pesoNeto || '', ean: producto.ean || '',
@@ -88,10 +89,11 @@ router.post('/envio', async (req, res) => {
         obs: req.body.obs || venta.obs || ''
       };
     }
+    const empresa = req.empresaId ? (await database.tryGet(database.empresaDocId(req.empresaId))) || cfg.empresa : cfg.empresa;
     const tracking = data.ventaId || `ENV-${Date.now()}`;
     const url = `${baseUrl(req)}/t/envio/${encodeURIComponent(tracking)}`;
     res.json({
-      remitente: cfg.empresa,
+      remitente: empresa,
       envio: { ...data, tracking },
       qr: await qr(url)
     });

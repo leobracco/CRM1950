@@ -69,10 +69,13 @@ app.post('/api/maquinas/pairing', async (req, res) => {
 // Trazabilidad pública por código de lote (QR del rótulo)
 app.get('/t/:codigo', async (req, res) => {
   try {
-    const lote = await database.tryGet(`lote:${req.params.codigo}`);
+    // El _id del lote está namespaceado por empresa; buscamos por el campo "codigo".
+    const lotes = await database.find({ selector: { type: 'lote', codigo: req.params.codigo }, limit: 1 });
+    const lote = lotes[0];
     if (!lote) return res.status(404).send('Lote no encontrado');
     const producto = await database.tryGet(lote.productoId);
-    res.send(publicTrace(lote, producto, req.query.s));
+    const empresa = lote.empresaId ? await database.tryGet(database.empresaDocId(lote.empresaId)) : null;
+    res.send(publicTrace(lote, producto, req.query.s, empresa || cfg.empresa));
   } catch (e) { res.status(500).send('Error'); }
 });
 app.get('/t/envio/:tracking', (req, res) => {
@@ -164,7 +167,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // Página pública de trazabilidad
-function publicTrace(lote, producto, serie) {
+function publicTrace(lote, producto, serie, empresa) {
   const f = iso => iso ? new Date(iso).toLocaleDateString('es-AR') : '—';
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -183,7 +186,7 @@ function publicTrace(lote, producto, serie) {
   <div class="row"><span class="k">Vencimiento</span><span>${f(lote.fechaVencimiento)}</span></div>
   ${serie ? `<div class="row"><span class="k">Unidad N°</span><span>${serie}</span></div>` : ''}
   ${producto?.ean ? `<div class="row"><span class="k">EAN</span><span>${producto.ean}</span></div>` : ''}
-  <p style="margin-top:1.5rem;color:#8a6d4a;font-size:.9rem">Producto elaborado por ${cfg.empresa.razonSocial}. Verificá la fecha de vencimiento antes de consumir.</p>
+  <p style="margin-top:1.5rem;color:#8a6d4a;font-size:.9rem">Producto elaborado por ${(empresa && empresa.razonSocial) || cfg.empresa.razonSocial}. Verificá la fecha de vencimiento antes de consumir.</p>
   </div></body></html>`;
 }
 
