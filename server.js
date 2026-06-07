@@ -195,8 +195,7 @@ function publicTrace(lote, producto, serie, empresa) {
   const ok = await database.init();
   if (ok) {
     try {
-      await seed.ensureAdmin();
-      await seed.ensureSampleData();
+      await seed.ensureSuperadmin();
     } catch (e) { console.warn('[seed]', e.message); }
   }
   const httpServer = app.listen(cfg.port, () => {

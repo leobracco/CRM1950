@@ -21,12 +21,12 @@ module.exports = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
 
-  // Usuario admin que se crea automáticamente si la base está vacía
+  // Superadmin que se crea automáticamente si la base está vacía
   bootstrapAdmin: {
-    usuario: process.env.ADMIN_USER || 'admin',
+    usuario: process.env.ADMIN_USER || 'superadmin',
     password: process.env.ADMIN_PASS || 'admin1950',
-    nombre: 'Administrador',
-    rol: 'admin'
+    nombre: 'Superadmin',
+    rol: 'superadmin'
   },
 
   // Datos de la empresa para rótulos/etiquetas (CAA / Ley 27.642)
