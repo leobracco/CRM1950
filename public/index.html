@@ -50,8 +50,9 @@
         <a data-route="lotes"><span class="ic">⌘</span> Lotes / Trazabilidad</a>
         <div class="grp">Impresión</div>
         <a data-route="etiquetas"><span class="ic">🏷</span> Etiquetas y Rótulos</a>
-        <div class="grp" data-admin>Sistema</div>
-        <a data-route="firmware" data-admin><span class="ic">⬆</span> Firmware</a>
+        <div class="grp" data-superadmin>Sistema</div>
+        <a data-route="empresas" data-superadmin><span class="ic">🏢</span> Empresas</a>
+        <a data-route="firmware" data-superadmin><span class="ic">⬆</span> Firmware</a>
         <a data-route="usuarios" data-admin><span class="ic">⚷</span> Usuarios</a>
       </nav>
       <div class="side-foot" id="sideFoot">v1.0</div>
@@ -65,6 +66,10 @@
             <h1 id="pageTitle">Tablero</h1>
             <div class="sub" id="pageSub"></div>
           </div>
+        </div>
+        <div id="empresaSwitch" class="hidden" style="margin-left:auto;display:flex;align-items:center;gap:.5rem">
+          <label style="font-size:.8rem;color:var(--muted)">Empresa</label>
+          <select id="empresaSel" class="input" style="width:auto;min-width:180px"></select>
         </div>
         <div class="user">
           <div class="avatar" id="avatar">A</div>

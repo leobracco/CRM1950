@@ -3,6 +3,7 @@
 
 const API = '/api';
 let USER = null;
+let EMPRESA_ACTIVA = null;
 const refCache = {};
 
 /* ---------- utils ---------- */
@@ -98,7 +99,8 @@ const TITLES = {
   maquinas: ['Máquinas', 'Control de máquinas de templado CacaoIO'],
   procesos: ['Procesos', 'Curvas de temperatura y análisis con IA'],
   recetasTemplado: ['Recetas de templado', 'Perfiles de temperatura para las máquinas'],
-  firmware: ['Firmware', 'Binarios OTA para las máquinas CacaoIO']
+  firmware: ['Firmware', 'Binarios OTA para las máquinas CacaoIO'],
+  empresas: ['Empresas', 'Alta y administración de empresas']
 };
 function go(route) { if (!TITLES[route]) route = 'dashboard'; location.hash = '#/' + route; }
 function render(route) {
@@ -115,7 +117,7 @@ window.addEventListener('hashchange', () => render(location.hash.replace('#/', '
 $$('#nav a').forEach(a => a.onclick = () => go(a.dataset.route));
 
 async function boot() {
-  try { const r = await get('/me'); USER = r.user; startApp(); }
+  try { const r = await get('/me'); USER = r.user; EMPRESA_ACTIVA = r.empresaActiva || null; startApp(); }
   catch { $('#login').classList.remove('hidden'); }
 }
 function startApp() {
@@ -123,9 +125,29 @@ function startApp() {
   $('#app').classList.remove('hidden');
   $('#uName').textContent = USER.nombre;
   $('#avatar').textContent = (USER.nombre || 'U')[0].toUpperCase();
-  $('#sideFoot').textContent = (USER.rol === 'admin' ? 'Administrador' : USER.nombre) + ' · v1.0';
-  $$('[data-admin]').forEach(el => el.style.display = USER.rol === 'admin' ? '' : 'none');
+  $('#sideFoot').textContent = (USER.rol === 'superadmin' ? 'Superadmin' : USER.rol === 'admin' ? 'Administrador' : USER.nombre) + ' · v1.0';
+  const esAdmin = USER.rol === 'admin' || USER.rol === 'superadmin';
+  $$('[data-admin]').forEach(el => el.style.display = esAdmin ? '' : 'none');
+  $$('[data-superadmin]').forEach(el => el.style.display = USER.rol === 'superadmin' ? '' : 'none');
+  initEmpresaSwitch();
   render(location.hash.replace('#/', '') || 'dashboard');
+}
+
+// Selector de empresa activa para el superadmin (barra superior).
+async function initEmpresaSwitch() {
+  if (USER.rol !== 'superadmin') return;
+  const sw = $('#empresaSwitch');
+  const sel = $('#empresaSel');
+  let empresas = [];
+  try { empresas = await get('/empresas'); } catch (e) { return; }
+  sel.innerHTML = '<option value="">— Todas las empresas —</option>' +
+    empresas.map(e => `<option value="${esc(e._id.replace('empresa:', ''))}">${esc(e.nombre)}${e.activo === false ? ' (suspendida)' : ''}</option>`).join('');
+  sel.value = EMPRESA_ACTIVA || '';
+  sw.classList.remove('hidden');
+  sel.onchange = async () => {
+    try { await post('/empresas/activa', { empresaId: sel.value || null }); location.reload(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 /* ================= GENERIC CRUD ================= */
@@ -1122,6 +1144,68 @@ function dibujarCurva(samples) {
 }
 
 /* ================= VIEWS MAP + BOOT ================= */
+/* ================= EMPRESAS (superadmin) ================= */
+async function empresasView(c) {
+  const empresas = await get('/empresas');
+  c.innerHTML = `<div class="section-head"><h2>Empresas</h2>
+      <button class="btn btn-primary" id="new">+ Nueva empresa</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${empresas.length ? empresas.map(e => {
+      const slug = e._id.replace('empresa:', '');
+      const susp = e.activo === false;
+      return `<tr>
+        <td><b>${esc(e.nombre)}</b></td><td>${esc(e.cuit || '—')}</td>
+        <td><span class="pill ${susp ? 'bad' : 'ok'}">${susp ? 'Suspendida' : 'Activa'}</span></td>
+        <td class="row-actions">
+          <button class="btn btn-ghost btn-sm" data-edit="${esc(slug)}">Editar</button>
+          <button class="btn btn-ghost btn-sm" data-toggle="${esc(slug)}" data-act="${susp ? '1' : '0'}">${susp ? 'Reactivar' : 'Suspender'}</button>
+        </td></tr>`;
+    }).join('') : `<tr><td colspan="4"><div class="empty">Todavía no hay empresas. Creá la primera.</div></td></tr>`}</tbody></table></div>`;
+  $('#new').onclick = () => empresaForm(null);
+  $$('[data-edit]', c).forEach(b => b.onclick = () => empresaForm(empresas.find(x => x._id.replace('empresa:', '') === b.dataset.edit)));
+  $$('[data-toggle]', c).forEach(b => b.onclick = async () => {
+    try { await put('/empresas/' + encodeURIComponent(b.dataset.toggle), { activo: b.dataset.act === '1' }); toast('Empresa actualizada'); render('empresas'); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+function empresaForm(e) {
+  const isEdit = !!e;
+  const slug = isEdit ? e._id.replace('empresa:', '') : null;
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field"><label>Nombre *</label><input class="input" id="eNom" value="${esc(e?.nombre || '')}"></div>
+    <div class="field"><label>Razón social</label><input class="input" id="eRazon" value="${esc(e?.razonSocial || '')}"></div>
+    <div class="field"><label>CUIT</label><input class="input" id="eCuit" value="${esc(e?.cuit || '')}"></div>
+    <div class="field"><label>Teléfono</label><input class="input" id="eTel" value="${esc(e?.telefono || '')}"></div>
+    <div class="field full"><label>Domicilio</label><input class="input" id="eDom" value="${esc(e?.domicilio || '')}"></div>
+    <div class="field"><label>Localidad</label><input class="input" id="eLoc" value="${esc(e?.localidad || '')}"></div>
+    <div class="field"><label>Email</label><input class="input" id="eMail" value="${esc(e?.email || '')}"></div>
+    ${isEdit ? '' : `<div class="field"><label>Usuario admin *</label><input class="input" id="eAU" autocomplete="off"></div>
+    <div class="field"><label>Contraseña admin *</label><input class="input" id="eAP" type="password" autocomplete="new-password"></div>`}</div>`;
+  const save = btn(isEdit ? 'Guardar' : 'Crear empresa', 'btn-primary', async () => {
+    const datos = {
+      nombre: $('#eNom', form).value.trim(), razonSocial: $('#eRazon', form).value.trim(),
+      cuit: $('#eCuit', form).value.trim(), telefono: $('#eTel', form).value.trim(),
+      domicilio: $('#eDom', form).value.trim(), localidad: $('#eLoc', form).value.trim(),
+      email: $('#eMail', form).value.trim()
+    };
+    if (!datos.nombre) return toast('Falta el nombre', 'err');
+    try {
+      if (isEdit) {
+        await put('/empresas/' + encodeURIComponent(slug), datos);
+      } else {
+        datos.adminUsuario = $('#eAU', form).value.trim();
+        datos.adminPassword = $('#eAP', form).value;
+        if (!datos.adminUsuario || !datos.adminPassword) return toast('Falta el usuario o la contraseña del admin', 'err');
+        await post('/empresas', datos);
+      }
+      toast('Guardado'); m.close(); render('empresas');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+  const m = modal({ title: isEdit ? 'Editar empresa' : 'Nueva empresa', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
+
 const VIEWS = {
   dashboard: dashboardView,
   ventas: ventasView,
@@ -1138,6 +1222,7 @@ const VIEWS = {
   maquinas: maquinasView,
   procesos: procesosView,
   recetasTemplado: c => crudView(c, 'recetasTemplado'),
-  firmware: firmwareView
+  firmware: firmwareView,
+  empresas: empresasView
 };
 boot();
