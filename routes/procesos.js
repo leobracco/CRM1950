@@ -27,6 +27,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
+    if (doc.type !== 'procterm') return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'Proceso no encontrado' });
     res.json(doc);
   } catch (e) { res.status(404).json({ error: 'Proceso no encontrado' }); }
@@ -108,6 +109,7 @@ router.post('/:id/analizar', async (req, res) => {
   }
   try {
     const doc = await database.get(req.params.id);
+    if (doc.type !== 'procterm') return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!doc.samples || !doc.samples.length) return res.status(400).json({ error: 'El proceso no tiene muestras' });
     const texto = await analizarConGemini(construirPrompt(doc));
