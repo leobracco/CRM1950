@@ -36,8 +36,8 @@ router.get('/', auth.requireRole('admin'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Subir un nuevo binario (admin).
-router.post('/', auth.requireRole('admin'), upload.single('archivo'), async (req, res) => {
+// Subir un nuevo binario (firmware global: solo superadmin).
+router.post('/', auth.requireSuperadmin, upload.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Falta el archivo .bin' });
     const sha256 = await sha256File(req.file.path);
@@ -53,8 +53,8 @@ router.post('/', auth.requireRole('admin'), upload.single('archivo'), async (req
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Eliminar una versión (admin): borra doc y archivo.
-router.delete('/:id', auth.requireRole('admin'), async (req, res) => {
+// Eliminar una versión (firmware global: solo superadmin): borra doc y archivo.
+router.delete('/:id', auth.requireSuperadmin, async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
     const file = path.join(DIR, path.basename(doc.archivo));
