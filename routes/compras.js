@@ -26,6 +26,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/compras  { proveedorId, fecha, items:[{insumoId, descripcion, cantidad, costoUnit}], obs }
 router.post('/', async (req, res) => {
   try {
+    if (!req.empresaId) return res.status(400).json({ error: 'Elegí una empresa antes de crear datos' });
     const { proveedorId, items = [], obs } = req.body || {};
     if (!items.length) return res.status(400).json({ error: 'La compra no tiene ítems' });
 

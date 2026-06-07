@@ -25,6 +25,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/ventas { clienteId, fecha, items:[{productoId, descripcion, cantidad, precioUnit, lote}], descuento, obs }
 router.post('/', async (req, res) => {
   try {
+    if (!req.empresaId) return res.status(400).json({ error: 'Elegí una empresa antes de crear datos' });
     const { clienteId, items = [], descuento = 0, obs } = req.body || {};
     if (!items.length) return res.status(400).json({ error: 'La venta no tiene ítems' });
 

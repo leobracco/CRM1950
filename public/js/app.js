@@ -481,10 +481,10 @@ async function fabricacionView(c) {
       ${ordenes.length ? ordenes.map(o => `<tr><td><b>${esc(o.numero)}</b></td><td>${dAR(o.fecha)}</td>
         <td>${esc(o.productoNombre)}</td><td class="num">${numfmt(o.cantidad)}</td>
         <td><span class="pill info">${esc(o.loteCodigo)}</span></td><td class="num">${money(o.costoUnit)}</td>
-        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-rot="${esc(o.loteCodigo)}">Rótulo</button></td></tr>`).join('')
+        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-rot="${esc(o.loteId || '')}">Rótulo</button></td></tr>`).join('')
       : `<tr><td colspan="7"><div class="empty">Sin órdenes de fabricación</div></td></tr>`}</tbody></table></div>`;
   $('#new').onclick = () => fabricacionForm(() => render('fabricacion'));
-  $$('[data-rot]', c).forEach(b => b.onclick = () => { go('etiquetas'); setTimeout(() => window._rotuloFromLote && window._rotuloFromLote('lote:' + b.dataset.rot), 300); });
+  $$('[data-rot]', c).forEach(b => b.onclick = () => { go('etiquetas'); setTimeout(() => window._rotuloFromLote && window._rotuloFromLote(b.dataset.rot), 300); });
 }
 async function fabricacionForm(done) {
   const [productos, recetas, insumos] = await Promise.all([loadRef('productos'), loadRef('recetas'), loadRef('insumos')]);
@@ -539,7 +539,7 @@ function fabResultModal(r) {
       <div><div class="muted" style="font-size:.78rem">VENCE</div><b>${dAR(r.lote.fechaVencimiento)}</b></div>
       <div><div class="muted" style="font-size:.78rem">COSTO/U</div><b>${money(r.orden.costoUnit)}</b></div></div></div>`;
   const m = modal({ title: 'Producción finalizada', body,
-    footer: [btn('Imprimir rótulo', 'btn-primary', () => { m.close(); go('etiquetas'); setTimeout(() => window._rotuloFromLote('lote:' + r.lote.codigo), 300); }), btn('Cerrar', 'btn-ghost', () => m.close())] });
+    footer: [btn('Imprimir rótulo', 'btn-primary', () => { m.close(); go('etiquetas'); setTimeout(() => window._rotuloFromLote(r.lote._id), 300); }), btn('Cerrar', 'btn-ghost', () => m.close())] });
 }
 
 /* ================= RECETAS ================= */
@@ -612,10 +612,10 @@ async function lotesView(c) {
         <td class="num">${money(l.costoUnit)}</td>
         <td class="row-actions">
           <button class="btn btn-ghost btn-sm" data-tz="${esc(l._id)}">Trazabilidad</button>
-          <button class="btn btn-ghost btn-sm" data-rot="${esc(l.codigo)}">Rótulo</button></td></tr>`; }).join('')
+          <button class="btn btn-ghost btn-sm" data-rot="${esc(l._id)}">Rótulo</button></td></tr>`; }).join('')
       : `<tr><td colspan="7"><div class="empty">Aún no hay lotes. Generá uno desde Fabricación.</div></td></tr>`}</tbody></table></div>`;
   $$('[data-tz]', c).forEach(b => b.onclick = () => trazaModal(b.dataset.tz));
-  $$('[data-rot]', c).forEach(b => b.onclick = () => { go('etiquetas'); setTimeout(() => window._rotuloFromLote('lote:' + b.dataset.rot), 300); });
+  $$('[data-rot]', c).forEach(b => b.onclick = () => { go('etiquetas'); setTimeout(() => window._rotuloFromLote(b.dataset.rot), 300); });
 }
 async function trazaModal(loteId) {
   const t = await get('/lotes/' + encodeURIComponent(loteId) + '/trazabilidad');

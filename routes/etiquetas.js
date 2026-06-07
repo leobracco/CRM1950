@@ -19,6 +19,7 @@ async function qr(text) {
 router.get('/rotulo/:loteId', async (req, res) => {
   try {
     const lote = await database.get(req.params.loteId);
+    if (!req.esSuperadmin && lote.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
     const producto = await database.get(lote.productoId);
 
     // Ingredientes: del producto, o derivados de la receta de la orden
@@ -60,6 +61,7 @@ router.get('/rotulo/:loteId', async (req, res) => {
 router.get('/serie/:loteId', async (req, res) => {
   try {
     const lote = await database.get(req.params.loteId);
+    if (!req.esSuperadmin && lote.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
     const desde = Math.max(1, parseInt(req.query.desde || '1', 10));
     const cantidad = Math.min(500, parseInt(req.query.cantidad || lote.cantidad || 12, 10));
     const series = [];
@@ -79,6 +81,7 @@ router.post('/envio', async (req, res) => {
     let data = { ...req.body };
     if (req.body.ventaId) {
       const venta = await database.get(req.body.ventaId);
+      if (!req.esSuperadmin && venta.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrado' });
       const cli = venta.clienteId ? await database.tryGet(venta.clienteId) : null;
       data = {
         ventaId: venta._id, numero: venta.numero,

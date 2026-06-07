@@ -34,6 +34,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/fabricacion { productoId, cantidad, recetaId?, consumos?, fechaElaboracion?, force?, obs }
 router.post('/', async (req, res) => {
   try {
+    if (!req.empresaId) return res.status(400).json({ error: 'Elegí una empresa antes de crear datos' });
     const { productoId, recetaId, force, obs } = req.body || {};
     const cantidad = Number(req.body.cantidad);
     if (!productoId || !cantidad) return res.status(400).json({ error: 'Falta producto o cantidad' });
@@ -80,6 +81,7 @@ router.post('/', async (req, res) => {
     const seq = await database.nextSeq(req.empresaId, 'orden');
     const ordenId = `orden:${req.empresaId}:${String(seq).padStart(6, '0')}`;
     const loteCodigo = `${yymmdd(fechaElaboracion)}-${String(seq).padStart(4, '0')}`;
+    const loteId = `lote:${req.empresaId}:${loteCodigo}`;
     const fechaVencimiento = addDays(fechaElaboracion, producto.vidaUtilDias || 90);
 
     // Consumir insumos y calcular costo
@@ -101,7 +103,7 @@ router.post('/', async (req, res) => {
     const costoUnit = Number((costoTotal / cantidad).toFixed(4));
 
     const lote = await database.insert({
-      _id: `lote:${req.empresaId}:${loteCodigo}`, type: 'lote', empresaId: req.empresaId, codigo: loteCodigo,
+      _id: loteId, type: 'lote', empresaId: req.empresaId, codigo: loteCodigo,
       productoId, productoNombre: producto.nombre,
       cantidad, fechaElaboracion, fechaVencimiento,
       ordenId,
@@ -113,7 +115,7 @@ router.post('/', async (req, res) => {
       _id: ordenId,
       type: 'orden', empresaId: req.empresaId, numero: `OF-${String(seq).padStart(6, '0')}`,
       productoId, productoNombre: producto.nombre, cantidad,
-      recetaId: recetaId || null, consumos, loteCodigo,
+      recetaId: recetaId || null, consumos, loteCodigo, loteId,
       fecha: fechaElaboracion, fechaVencimiento,
       costoTotal, costoUnit, obs: obs || '', estado: 'finalizada',
       usuario: req.session.user?.usuario,

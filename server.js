@@ -127,14 +127,16 @@ api.post('/cambiar-password', async (req, res) => {
 
 // Gestión de usuarios (solo admin)
 api.get('/usuarios', auth.requireRole('admin'), async (req, res) => {
-  try { res.json(await auth.listarUsuarios()); }
+  try { res.json(await auth.listarUsuarios(req.esSuperadmin ? undefined : req.empresaId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 api.post('/usuarios', auth.requireRole('admin'), async (req, res) => {
   if (!req.body || !req.body.usuario || !req.body.password)
     return res.status(400).json({ error: 'Faltan usuario o contraseña' });
+  // Un admin de empresa solo crea usuarios de su propia empresa; el superadmin elige (o global).
+  const empresaId = req.esSuperadmin ? (req.body.empresaId || null) : req.empresaId;
   try {
-    const { hash, ...u } = await auth.crearUsuario(req.body);
+    const { hash, ...u } = await auth.crearUsuario({ ...req.body, empresaId });
     res.status(201).json(u);
   } catch (e) {
     if (e.statusCode === 409) return res.status(409).json({ error: 'El usuario ya existe' });
@@ -142,7 +144,7 @@ api.post('/usuarios', auth.requireRole('admin'), async (req, res) => {
   }
 });
 api.put('/usuarios/:usuario', auth.requireRole('admin'), async (req, res) => {
-  try { res.json(await auth.actualizarUsuario(req.params.usuario, req.body || {})); }
+  try { res.json(await auth.actualizarUsuario(req.params.usuario, req.body || {}, req.esSuperadmin ? undefined : req.empresaId)); }
   catch (e) {
     if (e.statusCode === 404) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.status(e.statusCode || 500).json({ error: e.message });
