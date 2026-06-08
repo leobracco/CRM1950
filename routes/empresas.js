@@ -3,6 +3,7 @@
 const express = require('express');
 const database = require('../lib/db');
 const auth = require('../lib/auth');
+const contabilidad = require('../lib/contabilidad');
 
 const router = express.Router();
 
@@ -57,6 +58,9 @@ router.post('/', auth.requireSuperadmin, async (req, res) => {
       catch (eDel) { console.error('[empresas] No se pudo revertir la empresa huerfana', creada._id, eDel.message); }
       throw eUser;
     }
+    // Sembrar el plan de cuentas estándar (no aborta la creación si falla).
+    try { await contabilidad.sembrarPlan(slug); }
+    catch (eSeed) { console.warn('[empresas] No se pudo sembrar el plan de cuentas de', slug, eSeed.message); }
     res.status(201).json(empresa);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

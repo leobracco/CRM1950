@@ -95,6 +95,9 @@ const TITLES = {
   insumos: ['Insumos / Stock', 'Materias primas y existencias'],
   lotes: ['Lotes / Trazabilidad', 'Seguimiento y recall'],
   etiquetas: ['Etiquetas y Rótulos', 'Impresión de rótulos, series y envíos'],
+  cuentas: ['Plan de cuentas', 'Estructura contable de la empresa'],
+  diario: ['Libro diario', 'Asientos de doble partida (debe / haber)'],
+  mayor: ['Libro mayor', 'Movimientos y saldo por cuenta'],
   usuarios: ['Usuarios', 'Cuentas y accesos del sistema'],
   maquinas: ['Máquinas', 'Control de máquinas de templado CacaoIO'],
   procesos: ['Procesos', 'Curvas de temperatura y análisis con IA'],
@@ -1218,6 +1221,189 @@ function empresaForm(e) {
   const m = modal({ title: isEdit ? 'Editar empresa' : 'Nueva empresa', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
 }
 
+/* ================= CONTABILIDAD ================= */
+const TIPO_LABEL = { activo: 'Activo', pasivo: 'Pasivo', patrimonio: 'Patrimonio', ingreso: 'Ingreso', gasto: 'Gasto' };
+
+async function cuentasView(c) {
+  const cuentas = await get('/cuentas');
+  if (!cuentas.length) {
+    c.innerHTML = `<div class="section-head"><h2>Plan de cuentas</h2></div>
+      <div class="card card-pad"><div class="empty">Esta empresa todavía no tiene plan de cuentas.</div>
+      <div style="text-align:center;margin-top:1rem"><button class="btn btn-primary" id="seed">Cargar plan estándar</button></div></div>`;
+    $('#seed').onclick = async () => {
+      try { const r = await post('/cuentas/sembrar'); toast(`Plan cargado (${r.creadas} cuentas)`); render('cuentas'); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+    return;
+  }
+  c.innerHTML = `<div class="section-head"><h2>Plan de cuentas</h2>
+      <div class="toolbar"><button class="btn btn-ghost" id="seed">Completar estándar</button>
+        <button class="btn btn-primary" id="new">+ Nueva cuenta</button></div></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Código</th><th>Cuenta</th><th>Tipo</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${cuentas.map(x => `<tr style="${x.imputable ? '' : 'font-weight:700;background:var(--paper-2)'}">
+        <td>${esc(x.codigo)}</td><td>${esc(x.nombre)}</td>
+        <td><span class="pill">${TIPO_LABEL[x.tipo] || esc(x.tipo)}</span></td>
+        <td class="num">${x.imputable ? money(x.saldo) : ''}</td>
+        <td><span class="pill ${x.activa === false ? 'bad' : 'ok'}">${x.activa === false ? 'Inactiva' : 'Activa'}</span></td>
+        <td class="row-actions">
+          <button class="btn btn-ghost btn-sm" data-edit="${esc(x._id)}">Editar</button>
+          <button class="btn btn-danger btn-sm" data-del="${esc(x._id)}">✕</button></td></tr>`).join('')}
+      </tbody></table></div>`;
+  $('#new').onclick = () => cuentaForm(null);
+  $('#seed').onclick = async () => { try { const r = await post('/cuentas/sembrar'); toast(`Plan completado (+${r.creadas})`); render('cuentas'); } catch (e) { toast(e.message, 'err'); } };
+  $$('[data-edit]', c).forEach(b => b.onclick = () => cuentaForm(cuentas.find(x => x._id === b.dataset.edit)));
+  $$('[data-del]', c).forEach(b => b.onclick = async () => {
+    if (!confirm('¿Eliminar esta cuenta?')) return;
+    try { await del('/cuentas/' + encodeURIComponent(b.dataset.del)); toast('Eliminada'); render('cuentas'); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+function cuentaForm(cta) {
+  const isEdit = !!cta;
+  const tipos = [['activo', 'Activo'], ['pasivo', 'Pasivo'], ['patrimonio', 'Patrimonio'], ['ingreso', 'Ingreso'], ['gasto', 'Gasto']];
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+    <div class="field"><label>Código *</label><input class="input" id="cCod" value="${esc(cta?.codigo || '')}" ${isEdit ? 'readonly' : ''}></div>
+    <div class="field"><label>Nombre *</label><input class="input" id="cNom" value="${esc(cta?.nombre || '')}"></div>
+    <div class="field"><label>Tipo *</label><select class="input" id="cTipo">${tipos.map(t => `<option value="${t[0]}" ${cta?.tipo === t[0] ? 'selected' : ''}>${t[1]}</option>`).join('')}</select></div>
+    <div class="field"><label>Opciones</label>
+      <label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="cImp" ${cta ? (cta.imputable ? 'checked' : '') : 'checked'}> Imputable (usable en asientos)</label>
+      <label style="display:flex;gap:.5rem;align-items:center;margin-top:.3rem"><input type="checkbox" id="cAct" ${cta ? (cta.activa !== false ? 'checked' : '') : 'checked'}> Activa</label></div>
+  </div>`;
+  const save = btn(isEdit ? 'Guardar' : 'Crear', 'btn-primary', async () => {
+    const body = { codigo: $('#cCod', form).value.trim(), nombre: $('#cNom', form).value.trim(), tipo: $('#cTipo', form).value, imputable: $('#cImp', form).checked, activa: $('#cAct', form).checked };
+    if (!body.codigo || !body.nombre) return toast('Faltan código o nombre', 'err');
+    try {
+      if (isEdit) await put('/cuentas/' + encodeURIComponent(cta._id), body);
+      else await post('/cuentas', body);
+      toast('Guardado'); m.close(); render('cuentas');
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: isEdit ? 'Editar cuenta' : 'Nueva cuenta', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
+
+async function diarioView(c) {
+  const asientos = await get('/asientos');
+  c.innerHTML = `<div class="section-head"><h2>Libro diario</h2>
+      <button class="btn btn-primary" id="new">+ Nuevo asiento</button></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>N°</th><th>Fecha</th><th>Glosa</th><th class="num">Importe</th><th></th></tr></thead><tbody>
+      ${asientos.length ? asientos.map(a => {
+        const total = (a.renglones || []).reduce((s, r) => s + Number(r.debe || 0), 0);
+        return `<tr>
+          <td>${esc(a.numero)}</td><td>${dAR(a.fecha)}</td><td>${esc(a.glosa || '')}</td>
+          <td class="num">${money(total)}</td>
+          <td class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-edit="${esc(a._id)}">Editar</button>
+            <button class="btn btn-danger btn-sm" data-del="${esc(a._id)}">✕</button></td></tr>`;
+      }).join('') : `<tr><td colspan="5"><div class="empty">Sin asientos. Creá el primero.</div></td></tr>`}
+      </tbody></table></div>`;
+  $('#new').onclick = () => asientoForm(null);
+  $$('[data-edit]', c).forEach(b => b.onclick = () => asientoForm(asientos.find(x => x._id === b.dataset.edit)));
+  $$('[data-del]', c).forEach(b => b.onclick = async () => {
+    if (!confirm('¿Eliminar este asiento?')) return;
+    try { await del('/asientos/' + encodeURIComponent(b.dataset.del)); toast('Eliminado'); render('diario'); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+async function asientoForm(asiento) {
+  const isEdit = !!asiento;
+  const cuentas = (await get('/cuentas')).filter(x => x.imputable && x.activa !== false);
+  if (!cuentas.length) return toast('Primero cargá el plan de cuentas', 'err');
+  const opts = cuentas.map(x => `<option value="${esc(x.codigo)}">${esc(x.codigo)} · ${esc(x.nombre)}</option>`).join('');
+
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+      <div class="field"><label>Fecha *</label><input class="input" id="aFecha" type="date" value="${esc((asiento?.fecha || todayISO()).slice(0, 10))}"></div>
+      <div class="field full"><label>Glosa</label><input class="input" id="aGlosa" value="${esc(asiento?.glosa || '')}" placeholder="Descripción del asiento"></div>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th style="width:42%">Cuenta</th><th class="num">Debe</th><th class="num">Haber</th><th>Detalle</th><th></th></tr></thead>
+      <tbody id="rengs"></tbody>
+      <tfoot><tr style="font-weight:700">
+        <td style="text-align:right">Totales</td>
+        <td class="num" id="tDebe">$0,00</td><td class="num" id="tHaber">$0,00</td>
+        <td colspan="2" id="tDif"></td></tr></tfoot></table></div>
+    <div style="margin-top:.6rem"><button class="btn btn-ghost btn-sm" id="addR">+ Agregar renglón</button></div>`;
+
+  const tbody = $('#rengs', form);
+  function recalc() {
+    let d = 0, h = 0;
+    $$('#rengs tr', form).forEach(tr => { d += Number($('.rD', tr).value || 0); h += Number($('.rH', tr).value || 0); });
+    $('#tDebe', form).textContent = money(d);
+    $('#tHaber', form).textContent = money(h);
+    const dif = Math.round((d - h) * 100) / 100;
+    const ok = dif === 0 && d > 0;
+    $('#tDif', form).innerHTML = ok ? '<span class="pill ok">Balanceado</span>' : `<span class="pill bad">Dif. ${money(Math.abs(dif))}</span>`;
+    save.disabled = !ok; save.style.opacity = ok ? '1' : '.5';
+  }
+  function addRow(r = {}) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><select class="input rC">${opts}</select></td>
+      <td><input class="input num rD" type="number" step="0.01" min="0" value="${r.debe ? r.debe : ''}"></td>
+      <td><input class="input num rH" type="number" step="0.01" min="0" value="${r.haber ? r.haber : ''}"></td>
+      <td><input class="input rDet" value="${esc(r.detalle || '')}"></td>
+      <td><button class="btn btn-danger btn-sm rX">✕</button></td>`;
+    tbody.append(tr);
+    if (r.cuentaCodigo) $('.rC', tr).value = r.cuentaCodigo;
+    $('.rX', tr).onclick = () => { tr.remove(); recalc(); };
+    $('.rD', tr).oninput = () => { if ($('.rD', tr).value) $('.rH', tr).value = ''; recalc(); };
+    $('.rH', tr).oninput = () => { if ($('.rH', tr).value) $('.rD', tr).value = ''; recalc(); };
+    recalc();
+  }
+  const save = btn(isEdit ? 'Guardar' : 'Registrar asiento', 'btn-primary', async () => {
+    const renglones = $$('#rengs tr', form).map(tr => ({
+      cuentaCodigo: $('.rC', tr).value,
+      debe: Number($('.rD', tr).value || 0),
+      haber: Number($('.rH', tr).value || 0),
+      detalle: $('.rDet', tr).value
+    })).filter(r => r.debe > 0 || r.haber > 0);
+    const body = { fecha: $('#aFecha', form).value, glosa: $('#aGlosa', form).value.trim(), renglones };
+    try {
+      if (isEdit) await put('/asientos/' + encodeURIComponent(asiento._id), body);
+      else await post('/asientos', body);
+      toast('Asiento guardado'); m.close(); render('diario');
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: isEdit ? 'Editar asiento' : 'Nuevo asiento', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save], wide: true });
+  $('#addR', form).onclick = () => addRow();
+  if (isEdit && (asiento.renglones || []).length) asiento.renglones.forEach(addRow);
+  else { addRow(); addRow(); }
+  recalc();
+}
+
+async function mayorView(c) {
+  const cuentas = (await get('/cuentas')).filter(x => x.imputable);
+  c.innerHTML = `<div class="section-head"><h2>Libro mayor</h2></div>
+    <div class="card card-pad"><div class="form-grid">
+      <div class="field"><label>Cuenta</label><select class="input" id="mCta"><option value="">— elegí una cuenta —</option>${cuentas.map(x => `<option value="${esc(x.codigo)}">${esc(x.codigo)} · ${esc(x.nombre)}</option>`).join('')}</select></div>
+      <div class="field"><label>Desde</label><input class="input" id="mDesde" type="date"></div>
+      <div class="field"><label>Hasta</label><input class="input" id="mHasta" type="date"></div>
+      <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="mVer">Ver mayor</button></div>
+    </div></div>
+    <div id="mOut" style="margin-top:1rem"></div>`;
+  $('#mVer').onclick = async () => {
+    const cod = $('#mCta').value;
+    if (!cod) return toast('Elegí una cuenta', 'err');
+    const qs = [];
+    if ($('#mDesde').value) qs.push('desde=' + $('#mDesde').value);
+    if ($('#mHasta').value) qs.push('hasta=' + $('#mHasta').value);
+    try {
+      const r = await get('/asientos/mayor/' + encodeURIComponent(cod) + (qs.length ? '?' + qs.join('&') : ''));
+      $('#mOut').innerHTML = `<div class="table-wrap"><table><thead><tr>
+          <th>Fecha</th><th>Asiento</th><th>Detalle</th><th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th></tr></thead><tbody>
+          ${r.apuntes.length ? r.apuntes.map(a => `<tr>
+            <td>${dAR(a.fecha)}</td><td>${esc(a.numero)}</td><td>${esc(a.detalle || a.glosa || '')}</td>
+            <td class="num">${a.debe ? money(a.debe) : ''}</td><td class="num">${a.haber ? money(a.haber) : ''}</td>
+            <td class="num">${money(a.saldoAcum)}</td></tr>`).join('') : `<tr><td colspan="6"><div class="empty">Sin movimientos en esta cuenta</div></td></tr>`}
+          </tbody><tfoot><tr style="font-weight:700"><td colspan="5" style="text-align:right">Saldo final (${esc(r.cuenta.naturaleza)})</td><td class="num">${money(r.saldoFinal)}</td></tr></tfoot></table></div>`;
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
 const VIEWS = {
   dashboard: dashboardView,
   ventas: ventasView,
@@ -1235,6 +1421,9 @@ const VIEWS = {
   procesos: procesosView,
   recetasTemplado: c => crudView(c, 'recetasTemplado'),
   firmware: firmwareView,
-  empresas: empresasView
+  empresas: empresasView,
+  cuentas: cuentasView,
+  diario: diarioView,
+  mayor: mayorView
 };
 boot();

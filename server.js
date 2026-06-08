@@ -125,6 +125,8 @@ api.use('/fabricacion', require('./routes/fabricacion'));
 api.use('/lotes', require('./routes/lotes'));
 api.use('/etiquetas', require('./routes/etiquetas'));
 api.use('/movimientos', require('./routes/movimientos'));
+api.use('/cuentas', auth.requireRole('admin'), require('./routes/cuentas'));
+api.use('/asientos', auth.requireRole('admin'), require('./routes/asientos'));
 api.use('/dashboard', require('./routes/dashboard'));
 api.use('/maquinas', require('./routes/maquinas'));
 api.use('/procesos', require('./routes/procesos'));
