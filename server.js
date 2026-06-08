@@ -49,6 +49,10 @@ async function beforeInsumo(doc) {
 async function beforeReceta(doc) {
   doc.rinde = num(doc.rinde, 1);
   doc.items = (doc.items || []).map(i => ({ ...i, cantidad: num(i.cantidad) }));
+  // Markup (%) para derivar el precio de venta por unidad desde el costo.
+  // precio = costoU * 100 / (100 - markup). 0 = sin precio calculado.
+  doc.markupFinal = num(doc.markupFinal, 0);
+  doc.markupMayorista = num(doc.markupMayorista, 0);
   return doc;
 }
 async function beforeRecetaTemplado(doc) {

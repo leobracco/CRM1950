@@ -550,16 +550,22 @@ async function recetasView(c) {
   const [recetas, productos, insumos] = await Promise.all([get('/recetas'), loadRef('productos'), loadRef('insumos')]);
   refCache.recetas = recetas;
   const costoRec = r => (r.items || []).reduce((s, it) => s + Number((insumos.find(i => i._id === it.insumoId) || {}).costoUnit || 0) * Number(it.cantidad), 0);
+  // Precio de venta por unidad: precio = costoU * 100 / (100 - markup). null si el markup no es válido.
+  const precioVenta = (costoU, mk) => (mk > 0 && mk < 100) ? costoU * 100 / (100 - mk) : null;
+  const pcell = p => p == null ? '—' : money(p);
   c.innerHTML = `<div class="section-head"><h2>Recetas</h2>
     <button class="btn btn-primary" id="new">+ Nueva receta</button></div>
     <div class="table-wrap"><table><thead><tr><th>Código</th><th>Receta</th><th>Producto</th>
-      <th class="num">Rinde</th><th class="num">Costo lote</th><th class="num">Costo/u</th><th></th></tr></thead><tbody>
-      ${recetas.length ? recetas.map(r => { const cl = costoRec(r); return `<tr><td>${esc(r.codigo)}</td><td><b>${esc(r.nombre)}</b></td>
+      <th class="num">Rinde</th><th class="num">Costo lote</th><th class="num">Costo/u</th>
+      <th class="num">Precio final/u</th><th class="num">Precio mayor./u</th><th></th></tr></thead><tbody>
+      ${recetas.length ? recetas.map(r => { const cl = costoRec(r); const cu = r.rinde ? cl / r.rinde : 0; return `<tr><td>${esc(r.codigo)}</td><td><b>${esc(r.nombre)}</b></td>
         <td>${esc(refName('productos', r.productoId) || '—')}</td><td class="num">${numfmt(r.rinde)}</td>
-        <td class="num">${money(cl)}</td><td class="num">${money(r.rinde ? cl / r.rinde : 0)}</td>
+        <td class="num">${money(cl)}</td><td class="num">${money(cu)}</td>
+        <td class="num">${pcell(precioVenta(cu, Number(r.markupFinal || 0)))}</td>
+        <td class="num">${pcell(precioVenta(cu, Number(r.markupMayorista || 0)))}</td>
         <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit="${esc(r._id)}">Editar</button>
           <button class="btn btn-danger btn-sm" data-del="${esc(r._id)}">✕</button></td></tr>`; }).join('')
-      : `<tr><td colspan="7"><div class="empty">Sin recetas</div></td></tr>`}</tbody></table></div>`;
+      : `<tr><td colspan="9"><div class="empty">Sin recetas</div></td></tr>`}</tbody></table></div>`;
   $('#new').onclick = () => recetaForm(null, productos, insumos, () => render('recetas'));
   $$('[data-edit]', c).forEach(b => b.onclick = () => recetaForm(recetas.find(x => x._id === b.dataset.edit), productos, insumos, () => render('recetas')));
   $$('[data-del]', c).forEach(b => b.onclick = async () => { if (!confirm('¿Eliminar receta?')) return; await del('/recetas/' + encodeURIComponent(b.dataset.del)); toast('Eliminada'); render('recetas'); });
@@ -573,6 +579,8 @@ function recetaForm(row, productos, insumos, done) {
       <div class="field"><label>Producto resultante</label><select data-f="producto"><option value="">—</option>
         ${productos.map(p => `<option value="${esc(p._id)}" ${row?.productoId === p._id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></div>
       <div class="field"><label>Rinde (unidades)</label><input class="input" data-f="rinde" type="number" value="${row?.rinde || 100}"></div>
+      <div class="field"><label>Markup final (%)</label><input class="input" data-f="markupFinal" type="number" step="0.1" value="${row?.markupFinal ?? 0}"></div>
+      <div class="field"><label>Markup mayorista (%)</label><input class="input" data-f="markupMayorista" type="number" step="0.1" value="${row?.markupMayorista ?? 0}"></div>
     </div>
     <label style="font-size:.78rem;font-weight:600;color:var(--cocoa-700)">Insumos</label>
     <div class="table-wrap"><table class="items"><thead><tr><th style="width:55%">Insumo</th><th class="num">Cantidad</th><th></th></tr></thead><tbody class="ib"></tbody></table></div>
@@ -592,6 +600,7 @@ function recetaForm(row, productos, insumos, done) {
     const data = {
       codigo: $('[data-f="codigo"]', form).value.trim(), nombre: $('[data-f="nombre"]', form).value.trim(),
       productoId: $('[data-f="producto"]', form).value || null, rinde: Number($('[data-f="rinde"]', form).value || 1),
+      markupFinal: Number($('[data-f="markupFinal"]', form).value || 0), markupMayorista: Number($('[data-f="markupMayorista"]', form).value || 0),
       items: $$('tr', tb).map(tr => ({ insumoId: $('.art', tr).value, descripcion: $('.art', tr).selectedOptions[0]?.dataset.d || '', cantidad: Number($('.c', tr).value || 0) })).filter(i => i.insumoId && i.cantidad > 0)
     };
     if (!data.codigo || !data.nombre) return toast('Falta código o nombre', 'err');
@@ -893,12 +902,30 @@ function firmwareForm() {
 
 /* ================= MÁQUINAS (CacaoIO) ================= */
 let maquinasSSE = null;
+let maquinasData = [];
+
+// Espejo de la etapa del firmware (0=precalentado … 3=mantener).
+const ETAPAS_MAQ = ['Precalentado', 'Derretir', 'Templar', 'Mantener'];
+function etapaNombre(n) {
+  return (n != null && ETAPAS_MAQ[n] != null) ? `${n} · ${ETAPAS_MAQ[n]}` : '—';
+}
+const _v = x => (x != null ? x : '—');
+// Chip de actuador on/off, igual que el panel local del ESP32.
+function chipAct(label, on) {
+  return `<span class="pill ${on ? 'ok' : 'bad'}" style="font-size:.68rem;padding:.1rem .4rem">${esc(label)} ${on ? 'ON' : 'OFF'}</span>`;
+}
 
 function maquinaCard(m) {
   const on = m.online;
   const e = m.estado || {};
+  const cfg = e.config || {};
   const ta = (e.temp_choco != null) ? e.temp_choco : '—';
   const tw = (e.temp_agua != null) ? e.temp_agua : '—';
+  const sp = (e.setpoint != null) ? e.setpoint : '—';
+  const avisos = [];
+  if (e.error) avisos.push('⚠ Error de sensor');
+  if (e.reinicio_inesperado) avisos.push('⚠ Reinicio inesperado');
+  if (e.aviso_mantener_fin) avisos.push('✓ Fin de mantenido');
   return `<div class="card card-pad maq-card" data-maq="${esc(m._id)}">
     <div class="maq-head">
       <b>${esc(m.nombre)}</b>
@@ -907,9 +934,16 @@ function maquinaCard(m) {
     <div class="maq-temps">
       <div><span class="muted">Chocolate</span><b class="t-choco">${esc(ta)}°</b></div>
       <div><span class="muted">Agua</span><b class="t-agua">${esc(tw)}°</b></div>
-      <div><span class="muted">Etapa</span><b class="t-etapa">${esc(e.etapa_actual || '—')}</b></div>
+      <div><span class="muted">Setpoint</span><b class="t-sp">${esc(sp)}°</b></div>
+      <div><span class="muted">Etapa</span><b class="t-etapa">${esc(etapaNombre(e.etapa_actual))}</b></div>
     </div>
-    <div class="muted" style="font-size:.74rem">Receta: ${esc(m.recetaActiva || '—')} · FW ${esc(m.fwVersion || '—')}</div>
+    <div class="muted" style="font-size:.74rem;margin:.3rem 0">Proceso: <b style="color:${e.proceso_activo ? 'var(--accent)' : 'inherit'}">${e.proceso_activo ? 'EN CURSO' : 'Detenido'}</b></div>
+    <div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.3rem">
+      ${chipAct('Motor', e.motor)}${chipAct('Bomba', e.bomba)}${chipAct('Bomba agua', e.bomba_agua)}${chipAct('Ventilador', e.ventilador)}
+    </div>
+    ${avisos.length ? `<div style="font-size:.72rem;color:var(--danger);margin-bottom:.3rem">${avisos.map(esc).join(' · ')}</div>` : ''}
+    <div class="muted" style="font-size:.72rem">Derretido ${esc(_v(cfg.temp_derretido))}° · Templado ${esc(_v(cfg.temp_templado))}° · Máx agua ${esc(_v(cfg.max_agua))}° · Δ ${esc(_v(cfg.delta_agua))}°</div>
+    <div class="muted" style="font-size:.74rem;margin-top:.2rem">Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
     <div class="row-actions" style="margin-top:.6rem">
       <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>Control</button>
       <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>Enviar receta</button>
@@ -921,21 +955,23 @@ function maquinaCard(m) {
 
 async function maquinasView(c) {
   const maquinas = await get('/maquinas');
+  maquinasData = maquinas;
   c.innerHTML = `<div class="section-head"><h2>Máquinas</h2>
       <button class="btn btn-primary" id="vincular">+ Vincular máquina</button></div>
     <div class="maq-grid">${maquinas.length ? maquinas.map(maquinaCard).join('')
       : '<div class="empty">Sin máquinas vinculadas.</div>'}</div>`;
 
   $('#vincular').onclick = vincularModal;
-  bindMaquinaButtons(c, maquinas);
+  bindMaquinaButtons(c);
   conectarSSE();
 }
 
-function bindMaquinaButtons(c, maquinas) {
-  const find = id => maquinas.find(x => x._id === id);
-  $$('[data-ctrl]', c).forEach(b => b.onclick = () => controlModal(find(b.dataset.ctrl)));
-  $$('[data-rec]', c).forEach(b => b.onclick = () => enviarRecetaModal(find(b.dataset.rec)));
-  $$('[data-ota]', c).forEach(b => b.onclick = () => otaModal(find(b.dataset.ota)));
+// Engancha los botones de una card (o de todas si no se pasa una).
+function bindMaquinaButtons(scope) {
+  const find = id => maquinasData.find(x => x._id === id);
+  $$('[data-ctrl]', scope).forEach(b => b.onclick = () => controlModal(find(b.dataset.ctrl)));
+  $$('[data-rec]', scope).forEach(b => b.onclick = () => enviarRecetaModal(find(b.dataset.rec)));
+  $$('[data-ota]', scope).forEach(b => b.onclick = () => otaModal(find(b.dataset.ota)));
 }
 
 function conectarSSE() {
@@ -943,17 +979,18 @@ function conectarSSE() {
   maquinasSSE = new EventSource(API + '/maquinas/stream');
   maquinasSSE.onmessage = ev => {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
+    const m = maquinasData.find(x => x._id === d.maquinaId);
+    if (!m) return;
+    // Mezcla el estado nuevo sobre el cacheado para re-render completo.
+    if (d.online != null) m.online = d.online;
+    if (d.estado) m.estado = d.estado;
+    if (d.recetaActiva != null) m.recetaActiva = d.recetaActiva;
+    if (d.fwVersion != null) m.fwVersion = d.fwVersion;
     const card = $(`[data-maq="${d.maquinaId}"]`);
     if (!card) return;
-    if (d.online != null) {
-      const pill = card.querySelector('.pill');
-      pill.className = 'pill ' + (d.online ? 'ok' : 'bad');
-      pill.textContent = d.online ? 'En línea' : 'Desconectada';
-    }
-    const e = d.estado || {};
-    if (e.temp_choco != null) card.querySelector('.t-choco').textContent = e.temp_choco + '°';
-    if (e.temp_agua != null) card.querySelector('.t-agua').textContent = e.temp_agua + '°';
-    if (e.etapa_actual != null) card.querySelector('.t-etapa').textContent = e.etapa_actual;
+    card.outerHTML = maquinaCard(m);
+    const nueva = $(`[data-maq="${d.maquinaId}"]`);
+    if (nueva) bindMaquinaButtons(nueva);
   };
 }
 
