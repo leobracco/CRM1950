@@ -95,6 +95,11 @@ api.use((req, res, next) => {
   const u = req.session.user;
   req.empresaId = (u.rol === 'superadmin') ? (req.session.empresaActiva || null) : (u.empresaId || null);
   req.esSuperadmin = (u.rol === 'superadmin');
+  // Backstop de seguridad: un usuario no-superadmin sin empresa no puede ver
+  // ningún dato (sin filtro de empresaId, las listas devolverían todo).
+  if (!req.esSuperadmin && !req.empresaId) {
+    return res.status(403).json({ error: 'Tu usuario no tiene una empresa asignada. Contactá al administrador.' });
+  }
   next();
 });
 
