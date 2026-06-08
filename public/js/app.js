@@ -781,27 +781,35 @@ function cambiarPassModal() {
 
 async function usuariosView(c) {
   const users = await get('/usuarios');
+  const esSuper = USER.rol === 'superadmin';
+  const cols = esSuper ? 6 : 5;
   c.innerHTML = `<div class="section-head"><h2>Usuarios</h2>
       <button class="btn btn-primary" id="new">+ Nuevo usuario</button></div>
-    <div class="table-wrap"><table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th>${esSuper ? '<th>Empresa</th>' : ''}<th>Estado</th><th></th></tr></thead><tbody>
     ${users.length ? users.map(u => `<tr>
       <td><b>${esc(u.usuario)}</b></td><td>${esc(u.nombre || '')}</td>
       <td><span class="pill">${esc(rolLabel(u.rol))}</span></td>
+      ${esSuper ? `<td>${u.empresaId ? esc(u.empresaId) : '<span class="pill">— global —</span>'}</td>` : ''}
       <td><span class="pill ${u.activo !== false ? 'ok' : 'bad'}">${u.activo !== false ? 'Activo' : 'Inactivo'}</span></td>
       <td class="row-actions"><button class="btn btn-ghost btn-sm" data-edit="${esc(u.usuario)}">Editar</button></td></tr>`).join('')
-      : `<tr><td colspan="5"><div class="empty">Sin usuarios</div></td></tr>`}</tbody></table></div>`;
+      : `<tr><td colspan="${cols}"><div class="empty">Sin usuarios</div></td></tr>`}</tbody></table></div>`;
   $('#new').onclick = () => usuarioForm(null);
   $$('[data-edit]', c).forEach(b => b.onclick = () => usuarioForm(users.find(u => u.usuario === b.dataset.edit)));
 }
 
-function usuarioForm(u) {
+async function usuarioForm(u) {
   const isEdit = !!u;
+  const esSuper = USER.rol === 'superadmin';
+  // El superadmin debe asignar la empresa del nuevo usuario (default: empresa activa).
+  let empresas = [];
+  if (esSuper && !isEdit) { try { empresas = await get('/empresas'); } catch (e) {} }
   const form = document.createElement('div');
   form.innerHTML = `<div class="form-grid">
     <div class="field"><label>Usuario *</label><input class="input" id="uUser" value="${esc(u?.usuario || '')}" ${isEdit ? 'readonly' : ''} autocomplete="off"></div>
     <div class="field"><label>Nombre</label><input class="input" id="uNom" value="${esc(u?.nombre || '')}"></div>
     <div class="field"><label>Rol</label><select id="uRol">${ROLES.map(o => `<option value="${o[0]}" ${u?.rol === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></div>
     <div class="field"><label>${isEdit ? 'Nueva contraseña (opcional)' : 'Contraseña *'}</label><input class="input" id="uPass" type="password" autocomplete="new-password"></div>
+    ${esSuper && !isEdit ? `<div class="field full"><label>Empresa *</label><select id="uEmp">${empresas.map(e => { const s = e._id.replace('empresa:', ''); return `<option value="${esc(s)}" ${s === EMPRESA_ACTIVA ? 'selected' : ''}>${esc(e.nombre)}${e.activo === false ? ' (suspendida)' : ''}</option>`; }).join('')}</select></div>` : ''}
     ${isEdit ? `<div class="field full"><label style="display:flex;align-items:center;gap:.4rem"><input type="checkbox" id="uAct" ${u.activo !== false ? 'checked' : ''}> Activo</label></div>` : ''}</div>`;
   const save = btn(isEdit ? 'Guardar' : 'Crear', 'btn-primary', async () => {
     const usuario = $('#uUser', form).value.trim();
@@ -816,7 +824,13 @@ function usuarioForm(u) {
         await put('/usuarios/' + encodeURIComponent(usuario), body);
       } else {
         if (!password) return toast('Falta la contraseña', 'err');
-        await post('/usuarios', { usuario, nombre, rol, password });
+        const body = { usuario, nombre, rol, password };
+        if (esSuper) {
+          const emp = $('#uEmp', form);
+          body.empresaId = emp ? emp.value : (EMPRESA_ACTIVA || null);
+          if (!body.empresaId) return toast('Elegí una empresa para el usuario', 'err');
+        }
+        await post('/usuarios', body);
       }
       toast('Guardado'); m.close(); render('usuarios');
     } catch (e) { toast(e.message, 'err'); }
