@@ -911,8 +911,12 @@ function etapaNombre(n) {
 }
 const _v = x => (x != null ? x : '—');
 // Chip de actuador on/off, igual que el panel local del ESP32.
-function chipAct(label, on) {
-  return `<span class="pill ${on ? 'ok' : 'bad'}" style="font-size:.68rem;padding:.1rem .4rem">${esc(label)} ${on ? 'ON' : 'OFF'}</span>`;
+function chipAct(label, on, ico) {
+  return `<span class="maq-chip ${on ? 'on' : 'off'}">${ico ? `<span class="maq-chip-ico">${ico}</span>` : ''}${esc(label)} ${on ? 'ON' : 'OFF'}</span>`;
+}
+// Celda de temperatura/etapa: etiqueta arriba, ícono y valor centrados.
+function tempCell(label, ico, value, cls) {
+  return `<div class="mt"><span class="mt-label">${esc(label)}</span><span class="mt-ico">${ico}</span><b class="${cls} mt-val">${value}</b></div>`;
 }
 
 function maquinaCard(m) {
@@ -926,29 +930,34 @@ function maquinaCard(m) {
   if (e.error) avisos.push('⚠ Error de sensor');
   if (e.reinicio_inesperado) avisos.push('⚠ Reinicio inesperado');
   if (e.aviso_mantener_fin) avisos.push('✓ Fin de mantenido');
+  // Etapa: número grande + nombre debajo.
+  const en = e.etapa_actual;
+  const etapaVal = (en != null && ETAPAS_MAQ[en] != null)
+    ? `${en}<span class="mt-etapa-name">${esc(ETAPAS_MAQ[en])}</span>`
+    : '—';
   return `<div class="card card-pad maq-card" data-maq="${esc(m._id)}">
     <div class="maq-head">
       <b>${esc(m.nombre)}</b>
       <span class="pill ${on ? 'ok' : 'bad'}">${on ? 'En línea' : 'Desconectada'}</span>
     </div>
     <div class="maq-temps">
-      <div><span class="muted">Chocolate</span><b class="t-choco">${esc(ta)}°</b></div>
-      <div><span class="muted">Agua</span><b class="t-agua">${esc(tw)}°</b></div>
-      <div><span class="muted">Setpoint</span><b class="t-sp">${esc(sp)}°</b></div>
-      <div><span class="muted">Etapa</span><b class="t-etapa">${esc(etapaNombre(e.etapa_actual))}</b></div>
+      ${tempCell('Chocolate', '🍫', esc(ta) + '°', 't-choco')}
+      ${tempCell('Agua', '💧', esc(tw) + '°', 't-agua')}
+      ${tempCell('Setpoint', '🌡️', esc(sp) + '°', 't-sp')}
+      ${tempCell('Etapa', '⚙️', etapaVal, 't-etapa')}
     </div>
-    <div class="muted" style="font-size:.74rem;margin:.3rem 0">Proceso: <b style="color:${e.proceso_activo ? 'var(--accent)' : 'inherit'}">${e.proceso_activo ? 'EN CURSO' : 'Detenido'}</b></div>
-    <div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.3rem">
-      ${chipAct('Motor', e.motor)}${chipAct('Bomba', e.bomba)}${chipAct('Bomba agua', e.bomba_agua)}${chipAct('Ventilador', e.ventilador)}
+    <div class="maq-proc">Proceso: <b style="color:${e.proceso_activo ? 'var(--green)' : 'inherit'}">${e.proceso_activo ? 'EN CURSO' : 'Detenido'}</b></div>
+    <div class="maq-chips">
+      ${chipAct('Motor', e.motor, '⚙️')}${chipAct('Bomba', e.bomba, '🔁')}${chipAct('Bomba agua', e.bomba_agua, '💧')}${chipAct('Ventilador', e.ventilador, '🌀')}
     </div>
-    ${avisos.length ? `<div style="font-size:.72rem;color:var(--danger);margin-bottom:.3rem">${avisos.map(esc).join(' · ')}</div>` : ''}
-    <div class="muted" style="font-size:.72rem">Derretido ${esc(_v(cfg.temp_derretido))}° · Templado ${esc(_v(cfg.temp_templado))}° · Máx agua ${esc(_v(cfg.max_agua))}° · Δ ${esc(_v(cfg.delta_agua))}°</div>
-    <div class="muted" style="font-size:.74rem;margin-top:.2rem">Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
-    <div class="row-actions" style="margin-top:.6rem">
-      <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>Control</button>
-      <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>Enviar receta</button>
-      <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>Actualizar FW</button>
-      <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--danger)">Borrar</button>
+    ${avisos.length ? `<div class="maq-aviso">${avisos.map(a => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
+    <div class="maq-cfg">Derretido ${esc(_v(cfg.temp_derretido))}° · Templado ${esc(_v(cfg.temp_templado))}° · Máx agua ${esc(_v(cfg.max_agua))}° · Δ ${esc(_v(cfg.delta_agua))}°</div>
+    <div class="maq-receta">Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
+    <div class="row-actions maq-actions">
+      <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>⚙ Control</button>
+      <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>📋 Enviar receta</button>
+      <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>⬆ Actualizar FW</button>
+      <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--red)">🗑 Borrar</button>
     </div>
     ${on ? '' : '<div class="muted" style="font-size:.74rem;margin-top:.3rem">Operar desde el panel local de la máquina.</div>'}
   </div>`;

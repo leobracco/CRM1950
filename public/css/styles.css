@@ -215,9 +215,29 @@ textarea{min-height:74px;resize:vertical}
   .menu-btn{display:inline-flex !important}
 }
 .menu-btn{display:none}
-.maq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem}
+.maq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+.maq-card{display:flex;flex-direction:column}
 .maq-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem}
-.maq-temps{display:flex;gap:1.2rem;margin:.4rem 0}
-.maq-temps div{display:flex;flex-direction:column}
-.maq-temps b{font-size:1.4rem}
-.maq-card .muted{display:block}
+.maq-head b{font-size:1.15rem;font-weight:800}
+/* Grilla de 4 columnas iguales, cada celda centrada (etiqueta · ícono · valor). */
+.maq-temps{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin:.5rem 0 .7rem;
+  padding:.6rem 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.maq-temps .mt{display:flex;flex-direction:column;align-items:center;text-align:center;gap:.15rem;min-width:0}
+.mt-label{font-size:.72rem;color:var(--muted);font-weight:600}
+.mt-ico{font-size:1.05rem;line-height:1}
+.mt-val{font-size:1.35rem;font-weight:800;line-height:1.1}
+.t-etapa{font-size:1.35rem;display:flex;flex-direction:column;align-items:center;line-height:1.05}
+.mt-etapa-name{font-size:.72rem;font-weight:600;color:var(--muted)}
+.maq-proc{font-size:.78rem;color:var(--muted);margin:.1rem 0 .5rem}
+.maq-chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem}
+.maq-chip{display:inline-flex;align-items:center;gap:.28rem;font-size:.72rem;font-weight:700;
+  padding:.22rem .55rem;border-radius:999px;white-space:nowrap}
+.maq-chip-ico{font-size:.85rem;line-height:1}
+.maq-chip.on{background:var(--green-bg);color:var(--green)}
+.maq-chip.off{background:var(--red-bg);color:var(--red)}
+.maq-aviso{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem}
+.maq-aviso span{display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;font-weight:600;
+  color:var(--red);background:var(--red-bg);padding:.3rem .6rem;border-radius:8px}
+.maq-cfg{font-size:.74rem;color:var(--muted)}
+.maq-receta{font-size:.76rem;color:var(--muted);margin-top:.25rem}
+.maq-actions{margin-top:auto;padding-top:.7rem;flex-wrap:wrap;justify-content:flex-start}
