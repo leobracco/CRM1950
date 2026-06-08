@@ -800,16 +800,17 @@ async function usuariosView(c) {
 async function usuarioForm(u) {
   const isEdit = !!u;
   const esSuper = USER.rol === 'superadmin';
-  // El superadmin debe asignar la empresa del nuevo usuario (default: empresa activa).
+  // El superadmin asigna/reasigna la empresa del usuario (default en alta: empresa activa).
   let empresas = [];
-  if (esSuper && !isEdit) { try { empresas = await get('/empresas'); } catch (e) {} }
+  if (esSuper) { try { empresas = await get('/empresas'); } catch (e) {} }
+  const empSel = isEdit ? (u.empresaId || '') : (EMPRESA_ACTIVA || '');
   const form = document.createElement('div');
   form.innerHTML = `<div class="form-grid">
     <div class="field"><label>Usuario *</label><input class="input" id="uUser" value="${esc(u?.usuario || '')}" ${isEdit ? 'readonly' : ''} autocomplete="off"></div>
     <div class="field"><label>Nombre</label><input class="input" id="uNom" value="${esc(u?.nombre || '')}"></div>
     <div class="field"><label>Rol</label><select id="uRol">${ROLES.map(o => `<option value="${o[0]}" ${u?.rol === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></div>
     <div class="field"><label>${isEdit ? 'Nueva contraseña (opcional)' : 'Contraseña *'}</label><input class="input" id="uPass" type="password" autocomplete="new-password"></div>
-    ${esSuper && !isEdit ? `<div class="field full"><label>Empresa *</label><select id="uEmp">${empresas.map(e => { const s = e._id.replace('empresa:', ''); return `<option value="${esc(s)}" ${s === EMPRESA_ACTIVA ? 'selected' : ''}>${esc(e.nombre)}${e.activo === false ? ' (suspendida)' : ''}</option>`; }).join('')}</select></div>` : ''}
+    ${esSuper ? `<div class="field full"><label>Empresa *</label><select id="uEmp"><option value="">— sin empresa (global) —</option>${empresas.map(e => { const s = e._id.replace('empresa:', ''); return `<option value="${esc(s)}" ${s === empSel ? 'selected' : ''}>${esc(e.nombre)}${e.activo === false ? ' (suspendida)' : ''}</option>`; }).join('')}</select></div>` : ''}
     ${isEdit ? `<div class="field full"><label style="display:flex;align-items:center;gap:.4rem"><input type="checkbox" id="uAct" ${u.activo !== false ? 'checked' : ''}> Activo</label></div>` : ''}</div>`;
   const save = btn(isEdit ? 'Guardar' : 'Crear', 'btn-primary', async () => {
     const usuario = $('#uUser', form).value.trim();
@@ -821,15 +822,12 @@ async function usuarioForm(u) {
       if (isEdit) {
         const body = { nombre, rol, activo: $('#uAct', form).checked };
         if (password) body.password = password;
+        if (esSuper) body.empresaId = $('#uEmp', form).value || null;
         await put('/usuarios/' + encodeURIComponent(usuario), body);
       } else {
         if (!password) return toast('Falta la contraseña', 'err');
         const body = { usuario, nombre, rol, password };
-        if (esSuper) {
-          const emp = $('#uEmp', form);
-          body.empresaId = emp ? emp.value : (EMPRESA_ACTIVA || null);
-          if (!body.empresaId) return toast('Elegí una empresa para el usuario', 'err');
-        }
+        if (esSuper) body.empresaId = $('#uEmp', form).value || null;
         await post('/usuarios', body);
       }
       toast('Guardado'); m.close(); render('usuarios');
