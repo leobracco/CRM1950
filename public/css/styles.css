@@ -49,6 +49,15 @@ button{font-family:inherit}
 .brand .b2{letter-spacing:.34em;font-size:.62rem;font-weight:700;color:var(--amber);text-transform:uppercase;margin-top:.3rem}
 .nav{flex:1;overflow:auto;padding:.6rem .6rem 1rem}
 .nav .grp{font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:#9c8665;padding:.9rem .8rem .35rem}
+.grp-head{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;cursor:pointer;
+  font-family:inherit;font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:#9c8665;
+  padding:.85rem .8rem;text-align:left;border-radius:8px}
+.grp-head:hover{color:#d8c39b;background:rgba(255,255,255,.04)}
+.grp-arrow{font-size:.7rem;transition:transform .18s;opacity:.8}
+.nav-grp.open .grp-head{color:#e9dcc6}
+.nav-grp.open .grp-arrow{transform:rotate(90deg)}
+.grp-items{display:none;flex-direction:column;gap:.1rem;padding-bottom:.3rem}
+.nav-grp.open .grp-items{display:flex}
 .nav a{display:flex;align-items:center;gap:.7rem;padding:.56rem .8rem;border-radius:10px;color:#dccba9;
   text-decoration:none;font-size:.9rem;font-weight:500;cursor:pointer;transition:.15s}
 .nav a .ic{width:18px;text-align:center;opacity:.85}

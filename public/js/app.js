@@ -110,6 +110,9 @@ function render(route) {
   if (!TITLES[route]) route = 'dashboard';
   if (maquinasSSE && route !== 'maquinas') { maquinasSSE.close(); maquinasSSE = null; }
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.route === route));
+  // Despliega el grupo del menú que contiene la ruta activa.
+  const act = $('#nav a.active');
+  if (act) { const g = act.closest('.nav-grp'); if (g) g.classList.add('open'); }
   $('#pageTitle').textContent = TITLES[route][0];
   $('#pageSub').textContent = TITLES[route][1];
   $('#sidebar').classList.remove('open');
@@ -118,6 +121,46 @@ function render(route) {
 }
 window.addEventListener('hashchange', () => render(location.hash.replace('#/', '') || 'dashboard'));
 $$('#nav a').forEach(a => a.onclick = () => go(a.dataset.route));
+
+// Convierte el nav en acordeón: cada grupo (.grp) se vuelve un encabezado
+// clickeable que despliega/colapsa sus ítems, en vez de un scroll largo.
+function initNavAccordion() {
+  const nav = $('#nav');
+  if (nav.dataset.acc) return;
+  nav.dataset.acc = '1';
+  let items = null;
+  [...nav.children].forEach(node => {
+    if (node.classList.contains('grp')) {
+      const wrap = document.createElement('div');
+      wrap.className = 'nav-grp';
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'grp-head';
+      head.innerHTML = `<span>${esc(node.textContent)}</span><span class="grp-arrow">▸</span>`;
+      if (node.hasAttribute('data-admin')) head.setAttribute('data-admin', '');
+      if (node.hasAttribute('data-superadmin')) head.setAttribute('data-superadmin', '');
+      head.onclick = () => wrap.classList.toggle('open');
+      items = document.createElement('div');
+      items.className = 'grp-items';
+      wrap.append(head, items);
+      nav.insertBefore(wrap, node);
+      node.remove();
+    } else if (items) {
+      items.append(node);
+    }
+  });
+}
+
+// Oculta los grupos que quedaron sin ítems visibles tras el filtro por rol,
+// y muestra el encabezado de los que sí tienen (aunque el grupo sea de otro rol).
+function refreshNavGroups() {
+  $$('.nav-grp').forEach(g => {
+    const visibles = $$('a', g).some(a => a.style.display !== 'none');
+    g.style.display = visibles ? '' : 'none';
+    const head = $('.grp-head', g);
+    if (head && visibles) head.style.display = '';
+  });
+}
 
 async function boot() {
   try { const r = await get('/me'); USER = r.user; EMPRESA_ACTIVA = r.empresaActiva || null; startApp(); }
@@ -129,9 +172,11 @@ function startApp() {
   $('#uName').textContent = USER.nombre;
   $('#avatar').textContent = (USER.nombre || 'U')[0].toUpperCase();
   $('#sideFoot').textContent = (USER.rol === 'superadmin' ? 'Superadmin' : USER.rol === 'admin' ? 'Administrador' : USER.nombre) + ' · v1.0';
+  initNavAccordion();
   const esAdmin = USER.rol === 'admin' || USER.rol === 'superadmin';
   $$('[data-admin]').forEach(el => el.style.display = esAdmin ? '' : 'none');
   $$('[data-superadmin]').forEach(el => el.style.display = USER.rol === 'superadmin' ? '' : 'none');
+  refreshNavGroups();
   initEmpresaSwitch();
   render(location.hash.replace('#/', '') || 'dashboard');
 }
@@ -955,7 +1000,7 @@ function maquinaCard(m) {
     <div class="maq-receta">Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
     <div class="row-actions maq-actions">
       <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>⚙ Control</button>
-      <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>📋 Enviar receta</button>
+      <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>▶ Iniciar receta</button>
       <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>⬆ Actualizar FW</button>
       <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--red)">🗑 Borrar</button>
     </div>
@@ -1022,8 +1067,25 @@ async function vincularModal() {
   const body = document.createElement('div');
   body.innerHTML = `<p>En el portal WiFi de la máquina (AP <b>CacaoIO</b>) cargá la red de la fábrica y este código:</p>
     <div style="font-size:2.4rem;font-weight:800;letter-spacing:.2em;text-align:center;margin:1rem 0">${esc(r.codigo)}</div>
-    <p class="muted">Válido por 10 minutos. La máquina aparecerá acá apenas se conecte.</p>`;
-  modal({ title: 'Vincular máquina', body });
+    <p class="muted">Válido por 10 minutos. Esperando que la máquina se conecte…</p>`;
+  const mm = modal({ title: 'Vincular máquina', body });
+
+  // Espera a que aparezca una máquina nueva (la que se acaba de vincular) y cierra solo.
+  const idsPrevios = new Set(maquinasData.map(x => x._id));
+  const poll = setInterval(async () => {
+    let lista;
+    try { lista = await get('/maquinas'); } catch { return; }
+    const nueva = lista.find(x => !idsPrevios.has(x._id));
+    if (nueva) {
+      clearInterval(poll);
+      mm.close();
+      toast(`Máquina vinculada: ${nueva.nombre}`);
+      maquinasView($('#content'));
+    }
+  }, 3000);
+  // Frena el polling si el usuario cierra el modal a mano.
+  const obs = new MutationObserver(() => { if (!document.body.contains(mm.bg)) { clearInterval(poll); obs.disconnect(); } });
+  obs.observe($('#modal-root'), { childList: true });
 }
 
 function controlModal(m) {
@@ -1052,18 +1114,39 @@ function controlModal(m) {
 async function enviarRecetaModal(m) {
   const recetas = await get('/recetas-templado');
   const body = document.createElement('div');
+  if (!recetas.length) {
+    body.innerHTML = '<div class="empty">No hay recetas de templado. Creá una en «Recetas de templado».</div>';
+    const mm0 = modal({ title: 'Receta · ' + m.nombre, body, footer: [btn('Cerrar', 'btn-ghost', () => mm0.close())] });
+    return;
+  }
   body.innerHTML = `<div class="field"><label>Receta de templado</label>
-    <select id="recSel">${recetas.map(r => `<option value="${esc(r._id)}">${esc(r.nombre)}</option>`).join('')}</select></div>`;
-  const enviar = btn('Enviar a la máquina', 'btn-primary', async () => {
-    const r = recetas.find(x => x._id === $('#recSel', body).value);
-    if (!r) return;
+    <select id="recSel">${recetas.map(r => `<option value="${esc(r._id)}">${esc(r.nombre)}</option>`).join('')}</select></div>
+    <p class="muted" style="font-size:.8rem;margin-top:.5rem">«Cargar» deja la receta lista en la máquina. «Iniciar proceso» además arranca el templado ahora.</p>`;
+  const recElegida = () => recetas.find(x => x._id === $('#recSel', body).value);
+  const params = r => ({ nombre: r.nombre, temp_derretido: r.temp_derretido, temp_templado: r.temp_templado, max_agua: r.max_agua, delta_agua: r.delta_agua });
+
+  const cargar = btn('Cargar', 'btn-ghost', async () => {
+    const r = recElegida(); if (!r) return;
     try {
-      await post('/maquinas/' + encodeURIComponent(m._id) + '/receta',
-        { nombre: r.nombre, temp_derretido: r.temp_derretido, temp_templado: r.temp_templado, max_agua: r.max_agua, delta_agua: r.delta_agua });
-      toast('Receta enviada'); mm.close();
+      await post('/maquinas/' + encodeURIComponent(m._id) + '/receta', params(r));
+      toast('Receta cargada en la máquina'); mm.close();
     } catch (err) { toast(err.message, 'err'); }
   });
-  const mm = modal({ title: 'Enviar receta · ' + m.nombre, body, footer: [btn('Cancelar', 'btn-ghost', () => mm.close()), enviar] });
+  const iniciar = btn('Iniciar proceso', 'btn-primary', async () => {
+    const r = recElegida(); if (!r) return;
+    if (!confirm(`Iniciar el templado de "${r.nombre}" en ${m.nombre}?`)) return;
+    try {
+      // 1) deja la receta cargada en la lista local de la máquina.
+      await post('/maquinas/' + encodeURIComponent(m._id) + '/receta', params(r));
+      // 2) aplica los parámetros y arranca el proceso (reinicia el ciclo desde derretido).
+      await post('/maquinas/' + encodeURIComponent(m._id) + '/control', {
+        perfil_activo: r.nombre, temp_derretido: r.temp_derretido, temp_templado: r.temp_templado,
+        max_agua: r.max_agua, delta_agua: r.delta_agua, reiniciar_ciclo: true, proceso_activo: true
+      });
+      toast('Proceso iniciado'); mm.close();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+  const mm = modal({ title: 'Receta · ' + m.nombre, body, footer: [btn('Cancelar', 'btn-ghost', () => mm.close()), cargar, iniciar] });
 }
 
 async function otaModal(m) {
