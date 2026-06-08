@@ -948,6 +948,7 @@ function maquinaCard(m) {
       <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>Control</button>
       <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>Enviar receta</button>
       <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>Actualizar FW</button>
+      <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--danger)">Borrar</button>
     </div>
     ${on ? '' : '<div class="muted" style="font-size:.74rem;margin-top:.3rem">Operar desde el panel local de la máquina.</div>'}
   </div>`;
@@ -972,6 +973,19 @@ function bindMaquinaButtons(scope) {
   $$('[data-ctrl]', scope).forEach(b => b.onclick = () => controlModal(find(b.dataset.ctrl)));
   $$('[data-rec]', scope).forEach(b => b.onclick = () => enviarRecetaModal(find(b.dataset.rec)));
   $$('[data-ota]', scope).forEach(b => b.onclick = () => otaModal(find(b.dataset.ota)));
+  $$('[data-del]', scope).forEach(b => b.onclick = () => borrarMaquina(find(b.dataset.del)));
+}
+
+async function borrarMaquina(m) {
+  if (!m) return;
+  if (!confirm(`¿Borrar la máquina "${m.nombre}"? Se desvincula del CRM y deberá parearse de nuevo para reconectar.`)) return;
+  try {
+    await del('/maquinas/' + encodeURIComponent(m._id));
+    maquinasData = maquinasData.filter(x => x._id !== m._id);
+    const card = $(`[data-maq="${m._id}"]`);
+    if (card) card.remove();
+    toast('Máquina borrada');
+  } catch (e) { toast(e.message || 'No se pudo borrar', 'err'); }
 }
 
 function conectarSSE() {
