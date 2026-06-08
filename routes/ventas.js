@@ -41,10 +41,11 @@ router.post('/', async (req, res) => {
     for (const it of items) {
       if (!it.productoId) continue;
       const p = await database.tryGet(it.productoId);
-      if (p && !req.esSuperadmin && p.empresaId !== req.empresaId) {
+      // Rechazar referencias inexistentes o de otra empresa (evita escrituras parciales).
+      if (!p || (!req.esSuperadmin && p.empresaId !== req.empresaId)) {
         return res.status(400).json({ error: 'Producto inválido' });
       }
-      if (p && Number(p.stock || 0) < Number(it.cantidad)) {
+      if (Number(p.stock || 0) < Number(it.cantidad)) {
         return res.status(409).json({ error: `Stock insuficiente de ${p.nombre} (hay ${p.stock})` });
       }
     }
@@ -91,7 +92,10 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json(venta);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[ventas] POST', e);
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar la venta' });
+  }
 });
 
 module.exports = router;

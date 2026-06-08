@@ -39,8 +39,8 @@ router.post('/', async (req, res) => {
     const cantidad = Number(req.body.cantidad);
     if (!productoId || !cantidad) return res.status(400).json({ error: 'Falta producto o cantidad' });
 
-    const producto = await database.get(productoId);
-    if (!req.esSuperadmin && producto.empresaId !== req.empresaId) return res.status(400).json({ error: 'Producto inválido' });
+    const producto = await database.tryGet(productoId);
+    if (!producto || (!req.esSuperadmin && producto.empresaId !== req.empresaId)) return res.status(400).json({ error: 'Producto inválido' });
     const fechaElaboracion = req.body.fechaElaboracion || new Date().toISOString();
 
     // Determinar consumos de insumos
@@ -59,10 +59,12 @@ router.post('/', async (req, res) => {
       consumos = req.body.consumos.map(c => ({ ...c, cantidad: Number(c.cantidad) }));
     }
 
-    // Validar pertenencia de los insumos consumidos a la empresa
+    // Validar que los insumos consumidos existan y sean de la empresa
+    // (un insumoId inexistente abortaría el consumo dejando la orden a medio aplicar).
     for (const c of consumos) {
+      if (!c.insumoId) return res.status(400).json({ error: 'Consumo sin insumo' });
       const ins = await database.tryGet(c.insumoId);
-      if (ins && !req.esSuperadmin && ins.empresaId !== req.empresaId) {
+      if (!ins || (!req.esSuperadmin && ins.empresaId !== req.empresaId)) {
         return res.status(400).json({ error: 'Insumo inválido' });
       }
     }
@@ -139,7 +141,10 @@ router.post('/', async (req, res) => {
     } catch (_) {}
 
     res.status(201).json({ orden, lote });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[fabricacion] POST', e);
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar la fabricación' });
+  }
 });
 
 module.exports = router;

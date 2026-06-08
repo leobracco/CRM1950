@@ -38,11 +38,12 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Validar pertenencia de los insumos referenciados a la empresa
+    // Validar que los insumos referenciados existan y sean de la empresa
+    // (un insumoId inexistente haría fallar el movimiento dejando la compra a medio crear).
     for (const it of items) {
       if (!it.insumoId) continue;
       const ins = await database.tryGet(it.insumoId);
-      if (ins && !req.esSuperadmin && ins.empresaId !== req.empresaId) {
+      if (!ins || (!req.esSuperadmin && ins.empresaId !== req.empresaId)) {
         return res.status(400).json({ error: 'Insumo inválido' });
       }
     }
@@ -89,7 +90,10 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json(compra);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[compras] POST', e);
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar la compra' });
+  }
 });
 
 module.exports = router;

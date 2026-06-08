@@ -43,7 +43,7 @@ router.post('/pairing-code', auth.requireRole('admin'), async (req, res) => {
 });
 
 // Enviar comando de control (mismo JSON que /api/control del firmware).
-router.post('/:id/control', async (req, res) => {
+router.post('/:id/control', auth.requireRole('admin', 'operario', 'produccion'), async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
     if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrada' });
@@ -54,7 +54,7 @@ router.post('/:id/control', async (req, res) => {
 });
 
 // Enviar una receta de templado a la máquina.
-router.post('/:id/receta', async (req, res) => {
+router.post('/:id/receta', auth.requireRole('admin', 'operario', 'produccion'), async (req, res) => {
   try {
     const doc = await database.get(req.params.id);
     if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrada' });

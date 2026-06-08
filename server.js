@@ -11,8 +11,13 @@ const crud = require('./lib/crud');
 const seed = require('./lib/seed');
 const cloudGateway = require('./lib/cloudGateway');
 const maquinasLib = require('./lib/maquinas');
+const rateLimit = require('./lib/ratelimit');
+
+const isProd = process.env.NODE_ENV === 'production';
 
 const app = express();
+// Detrás de nginx: confiar en X-Forwarded-* para IP real (rate limit) y proto (cookie secure).
+if (isProd) app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -20,8 +25,13 @@ app.use(session({
   secret: cfg.sessionSecret,
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 }
+  cookie: { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: 1000 * 60 * 60 * 8 }
 }));
+
+// Rate limiting de endpoints sensibles (fuerza bruta de login / pairing).
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'login' });
+const pairingLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 15, keyPrefix: 'pairing' });
+app.use('/api/login', loginLimiter);
 
 // ---- Helpers de coerción numérica ----
 const num = (v, d = 0) => (v === '' || v == null ? d : Number(v));
@@ -57,7 +67,7 @@ async function beforeRecetaTemplado(doc) {
 app.use('/api', auth.router);
 
 // Alta de máquina (pública: el dispositivo aún no tiene token).
-app.post('/api/maquinas/pairing', async (req, res) => {
+app.post('/api/maquinas/pairing', pairingLimiter, async (req, res) => {
   const { codigo, serial, fwVersion } = req.body || {};
   if (!codigo) return res.status(400).json({ error: 'Falta el código' });
   try {
@@ -81,7 +91,7 @@ app.get('/t/:codigo', async (req, res) => {
 app.get('/t/envio/:tracking', (req, res) => {
   res.send(`<!doctype html><meta charset="utf-8"><title>Seguimiento</title>
   <body style="font-family:system-ui;padding:2rem;text-align:center">
-  <h2>Envío ${req.params.tracking}</h2><p>Fábrica de Alfajores 1950</p></body>`);
+  <h2>Envío ${escapeHtml(req.params.tracking)}</h2><p>Fábrica de Alfajores 1950</p></body>`);
 });
 
 // ---- A partir de acá, todo requiere sesión ----
@@ -173,12 +183,23 @@ app.use('/firmware', express.static(path.join(__dirname, 'firmware')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
+// Escape HTML para render server-side (estas páginas NO pasan por el esc() del SPA).
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // Página pública de trazabilidad
 function publicTrace(lote, producto, serie, empresa) {
-  const f = iso => iso ? new Date(iso).toLocaleDateString('es-AR') : '—';
+  const f = iso => iso ? escapeHtml(new Date(iso).toLocaleDateString('es-AR')) : '—';
+  // serie viene de req.query.s (input no confiable): solo dígitos.
+  const serieLimpia = /^[0-9]{1,6}$/.test(String(serie || '')) ? String(serie) : '';
+  const nombre = escapeHtml(lote.productoNombre || 'Producto');
+  const razon = escapeHtml((empresa && empresa.razonSocial) || cfg.empresa.razonSocial);
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Trazabilidad · ${lote.productoNombre}</title>
+  <title>Trazabilidad · ${nombre}</title>
   <style>body{font-family:system-ui,Segoe UI,Roboto;margin:0;background:#f3ead9;color:#2b1d12}
   .card{max-width:480px;margin:0 auto;padding:2rem}
   .brand{font-weight:800;letter-spacing:.2em;color:#7b3f1d}
@@ -187,13 +208,13 @@ function publicTrace(lote, producto, serie, empresa) {
   .k{color:#8a6d4a}</style></head>
   <body><div class="card">
   <div class="brand">1950 · ALFAJORES</div>
-  <h1>${lote.productoNombre || 'Producto'}</h1>
-  <div class="row"><span class="k">Lote</span><b>${lote.codigo}</b></div>
+  <h1>${nombre}</h1>
+  <div class="row"><span class="k">Lote</span><b>${escapeHtml(lote.codigo)}</b></div>
   <div class="row"><span class="k">Elaboración</span><span>${f(lote.fechaElaboracion)}</span></div>
   <div class="row"><span class="k">Vencimiento</span><span>${f(lote.fechaVencimiento)}</span></div>
-  ${serie ? `<div class="row"><span class="k">Unidad N°</span><span>${serie}</span></div>` : ''}
-  ${producto?.ean ? `<div class="row"><span class="k">EAN</span><span>${producto.ean}</span></div>` : ''}
-  <p style="margin-top:1.5rem;color:#8a6d4a;font-size:.9rem">Producto elaborado por ${(empresa && empresa.razonSocial) || cfg.empresa.razonSocial}. Verificá la fecha de vencimiento antes de consumir.</p>
+  ${serieLimpia ? `<div class="row"><span class="k">Unidad N°</span><span>${serieLimpia}</span></div>` : ''}
+  ${producto?.ean ? `<div class="row"><span class="k">EAN</span><span>${escapeHtml(producto.ean)}</span></div>` : ''}
+  <p style="margin-top:1.5rem;color:#8a6d4a;font-size:.9rem">Producto elaborado por ${razon}. Verificá la fecha de vencimiento antes de consumir.</p>
   </div></body></html>`;
 }
 
