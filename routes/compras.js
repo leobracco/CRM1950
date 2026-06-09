@@ -3,6 +3,7 @@
 const express = require('express');
 const database = require('../lib/db');
 const stock = require('../lib/stock');
+const caja = require('../lib/caja');
 
 const router = express.Router();
 
@@ -93,6 +94,23 @@ router.post('/', async (req, res) => {
   } catch (e) {
     console.error('[compras] POST', e);
     res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar la compra' });
+  }
+});
+
+// Registrar un pago a proveedor (parcial o total). Saca plata de Caja vía asientos.
+router.post('/:id/pagar', async (req, res) => {
+  try {
+    const compra = await database.get(req.params.id);
+    if (compra.type !== 'compra' || (!req.esSuperadmin && compra.empresaId !== req.empresaId)) {
+      return res.status(404).json({ error: 'No encontrada' });
+    }
+    const monto = Number(req.body?.monto);
+    const fecha = req.body?.fecha || new Date().toISOString();
+    if (!monto || monto <= 0) return res.status(400).json({ error: 'Ingresá un monto válido' });
+    const out = await caja.registrarPago(compra.empresaId, compra, { monto, fecha, usuario: req.session.user?.usuario });
+    res.json(out);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar el pago' });
   }
 });
 

@@ -3,6 +3,7 @@
 const express = require('express');
 const database = require('../lib/db');
 const stock = require('../lib/stock');
+const caja = require('../lib/caja');
 
 const router = express.Router();
 
@@ -95,6 +96,23 @@ router.post('/', async (req, res) => {
   } catch (e) {
     console.error('[ventas] POST', e);
     res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar la venta' });
+  }
+});
+
+// Registrar una cobranza (parcial o total). Mueve plata a Caja vía asientos.
+router.post('/:id/cobrar', async (req, res) => {
+  try {
+    const venta = await database.get(req.params.id);
+    if (venta.type !== 'venta' || (!req.esSuperadmin && venta.empresaId !== req.empresaId)) {
+      return res.status(404).json({ error: 'No encontrada' });
+    }
+    const monto = Number(req.body?.monto);
+    const fecha = req.body?.fecha || new Date().toISOString();
+    if (!monto || monto <= 0) return res.status(400).json({ error: 'Ingresá un monto válido' });
+    const out = await caja.registrarCobro(venta.empresaId, venta, { monto, fecha, usuario: req.session.user?.usuario });
+    res.json(out);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'No se pudo registrar el cobro' });
   }
 });
 

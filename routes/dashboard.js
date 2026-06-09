@@ -25,6 +25,12 @@ router.get('/', async (req, res) => {
     const ventasMes = ventas.filter(v => inMonth(v.fecha));
     const comprasMes = compras.filter(c => inMonth(c.fecha));
 
+    // Caja: saldo = cobranzas acumuladas − pagos acumulados. Pendientes de cobro/pago.
+    const saldoCaja = ventas.reduce((s, v) => s + Number(v.cobrado || 0), 0)
+                    - compras.reduce((s, c) => s + Number(c.pagado || 0), 0);
+    const aCobrar = ventas.reduce((s, v) => s + Math.max(0, Number(v.total || 0) - Number(v.cobrado || 0)), 0);
+    const aPagar = compras.reduce((s, c) => s + Math.max(0, Number(c.total || 0) - Number(c.pagado || 0)), 0);
+
     const stockValor = productos.reduce((s, p) => s + Number(p.stock || 0) * Number(p.costoUnit || 0), 0);
     const insumosBajos = insumos
       .filter(i => Number(i.stock || 0) <= Number(i.stockMin || 0))
@@ -56,7 +62,10 @@ router.get('/', async (req, res) => {
         productos: productos.length,
         insumos: insumos.length,
         ordenes: ordenes.length,
-        stockValor: Number(stockValor.toFixed(2))
+        stockValor: Number(stockValor.toFixed(2)),
+        saldoCaja: Number(saldoCaja.toFixed(2)),
+        aCobrar: Number(aCobrar.toFixed(2)),
+        aPagar: Number(aPagar.toFixed(2))
       },
       insumosBajos,
       lotesPorVencer,

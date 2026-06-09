@@ -449,16 +449,18 @@ async function ventasView(c) {
   c.innerHTML = `<div class="section-head"><h2>Ventas</h2>
     <button class="btn btn-primary" id="new">+ Nueva venta</button></div>
     <div class="table-wrap"><table><thead><tr><th>N°</th><th>Fecha</th><th>Cliente</th>
-      <th class="num">Total</th><th>Estado</th><th></th></tr></thead><tbody>
-      ${ventas.length ? ventas.map(v => `<tr><td><b>${esc(v.numero)}</b></td><td>${dAR(v.fecha)}</td>
+      <th class="num">Total</th><th>Cobro</th><th></th></tr></thead><tbody>
+      ${ventas.length ? ventas.map(v => { const ci = cobroInfo(v); return `<tr><td><b>${esc(v.numero)}</b></td><td>${dAR(v.fecha)}</td>
         <td>${esc(refName('clientes', v.clienteId) || 'Consumidor final')}</td><td class="num">${money(v.total)}</td>
-        <td><span class="pill ok">${esc(v.estado)}</span></td>
+        <td><span class="pill ${ci.cls}">${ci.txt}</span></td>
         <td class="row-actions">
+          ${ci.pend > 0 ? `<button class="btn btn-primary btn-sm" data-cobrar="${esc(v._id)}">Cobrar</button>` : ''}
           <button class="btn btn-ghost btn-sm" data-env="${esc(v._id)}">Envío</button>
-          <button class="btn btn-ghost btn-sm" data-ver="${esc(v._id)}">Ver</button></td></tr>`).join('')
+          <button class="btn btn-ghost btn-sm" data-ver="${esc(v._id)}">Ver</button></td></tr>`; }).join('')
       : `<tr><td colspan="6"><div class="empty">Sin ventas registradas</div></td></tr>`}</tbody></table></div>`;
   $('#new').onclick = () => ventaForm(() => render('ventas'));
   $$('[data-ver]', c).forEach(b => b.onclick = () => verDoc('venta', b.dataset.ver, 'clientes'));
+  $$('[data-cobrar]', c).forEach(b => b.onclick = () => { const v = ventas.find(x => x._id === b.dataset.cobrar); cobrarModal(v, () => render('ventas')); });
   $$('[data-env]', c).forEach(b => b.onclick = () => { go('etiquetas'); setTimeout(() => window._envioFromVenta && window._envioFromVenta(b.dataset.env), 300); });
 }
 async function ventaForm(done) {
@@ -482,6 +484,32 @@ async function ventaForm(done) {
   });
   const m = modal({ title: 'Nueva venta', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save], wide: true });
 }
+function cobroInfo(v) {
+  const total = Number(v.total || 0), cobrado = Number(v.cobrado || 0), pend = Math.max(0, Number((total - cobrado).toFixed(2)));
+  if (pend <= 0 && cobrado > 0) return { txt: 'Cobrada', cls: 'ok', pend: 0 };
+  if (cobrado > 0) return { txt: 'Parcial ' + money(cobrado), cls: 'warn', pend };
+  return { txt: 'A cobrar', cls: 'bad', pend };
+}
+function cobrarModal(v, done) {
+  const ci = cobroInfo(v);
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+      <div class="field"><label>Total</label><input class="input" value="${money(v.total)}" disabled></div>
+      <div class="field"><label>Cobrado</label><input class="input" value="${money(v.cobrado || 0)}" disabled></div>
+      <div class="field"><label>Pendiente</label><input class="input" value="${money(ci.pend)}" disabled></div>
+      <div class="field"><label>Fecha</label><input class="input" data-f="fecha" type="date" value="${todayISO()}"></div>
+      <div class="field"><label>Monto a cobrar *</label><input class="input" data-f="monto" type="number" step="0.01" value="${ci.pend}"></div>
+    </div>`;
+  const save = btn('Registrar cobro', 'btn-primary', async () => {
+    const monto = Number($('[data-f="monto"]', form).value || 0);
+    if (!monto || monto <= 0) return toast('Ingresá un monto válido', 'err');
+    try {
+      await post('/ventas/' + encodeURIComponent(v._id) + '/cobrar', { monto, fecha: new Date($('[data-f="fecha"]', form).value).toISOString() });
+      toast('Cobro registrado'); m.close(); done && done();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: 'Cobrar ' + (v.numero || ''), body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
+}
 
 /* ================= COMPRAS ================= */
 async function comprasView(c) {
@@ -489,14 +517,17 @@ async function comprasView(c) {
   c.innerHTML = `<div class="section-head"><h2>Compras</h2>
     <button class="btn btn-primary" id="new">+ Nueva compra</button></div>
     <div class="table-wrap"><table><thead><tr><th>N°</th><th>Fecha</th><th>Proveedor</th>
-      <th class="num">Total</th><th>Estado</th><th></th></tr></thead><tbody>
-      ${compras.length ? compras.map(v => `<tr><td><b>${esc(v.numero)}</b></td><td>${dAR(v.fecha)}</td>
+      <th class="num">Total</th><th>Pago</th><th></th></tr></thead><tbody>
+      ${compras.length ? compras.map(v => { const pi = pagoInfo(v); return `<tr><td><b>${esc(v.numero)}</b></td><td>${dAR(v.fecha)}</td>
         <td>${esc(refName('proveedores', v.proveedorId) || '—')}</td><td class="num">${money(v.total)}</td>
-        <td><span class="pill info">${esc(v.estado)}</span></td>
-        <td class="row-actions"><button class="btn btn-ghost btn-sm" data-ver="${esc(v._id)}">Ver</button></td></tr>`).join('')
+        <td><span class="pill ${pi.cls}">${pi.txt}</span></td>
+        <td class="row-actions">
+          ${pi.pend > 0 ? `<button class="btn btn-primary btn-sm" data-pagar="${esc(v._id)}">Pagar</button>` : ''}
+          <button class="btn btn-ghost btn-sm" data-ver="${esc(v._id)}">Ver</button></td></tr>`; }).join('')
       : `<tr><td colspan="6"><div class="empty">Sin compras registradas</div></td></tr>`}</tbody></table></div>`;
   $('#new').onclick = () => compraForm(() => render('compras'));
   $$('[data-ver]', c).forEach(b => b.onclick = () => verDoc('compra', b.dataset.ver, 'proveedores'));
+  $$('[data-pagar]', c).forEach(b => b.onclick = () => { const v = compras.find(x => x._id === b.dataset.pagar); pagarModal(v, () => render('compras')); });
 }
 async function compraForm(done) {
   const insumos = await loadRef('insumos'); const proveedores = await loadRef('proveedores');
@@ -517,6 +548,32 @@ async function compraForm(done) {
     } catch (e) { toast(e.message, 'err'); }
   });
   const m = modal({ title: 'Nueva compra', body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save], wide: true });
+}
+function pagoInfo(c) {
+  const total = Number(c.total || 0), pagado = Number(c.pagado || 0), pend = Math.max(0, Number((total - pagado).toFixed(2)));
+  if (pend <= 0 && pagado > 0) return { txt: 'Pagada', cls: 'ok', pend: 0 };
+  if (pagado > 0) return { txt: 'Parcial ' + money(pagado), cls: 'warn', pend };
+  return { txt: 'A pagar', cls: 'bad', pend };
+}
+function pagarModal(c, done) {
+  const pi = pagoInfo(c);
+  const form = document.createElement('div');
+  form.innerHTML = `<div class="form-grid">
+      <div class="field"><label>Total</label><input class="input" value="${money(c.total)}" disabled></div>
+      <div class="field"><label>Pagado</label><input class="input" value="${money(c.pagado || 0)}" disabled></div>
+      <div class="field"><label>Pendiente</label><input class="input" value="${money(pi.pend)}" disabled></div>
+      <div class="field"><label>Fecha</label><input class="input" data-f="fecha" type="date" value="${todayISO()}"></div>
+      <div class="field"><label>Monto a pagar *</label><input class="input" data-f="monto" type="number" step="0.01" value="${pi.pend}"></div>
+    </div>`;
+  const save = btn('Registrar pago', 'btn-primary', async () => {
+    const monto = Number($('[data-f="monto"]', form).value || 0);
+    if (!monto || monto <= 0) return toast('Ingresá un monto válido', 'err');
+    try {
+      await post('/compras/' + encodeURIComponent(c._id) + '/pagar', { monto, fecha: new Date($('[data-f="fecha"]', form).value).toISOString() });
+      toast('Pago registrado'); m.close(); done && done();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const m = modal({ title: 'Pagar ' + (c.numero || ''), body: form, footer: [btn('Cancelar', 'btn-ghost', () => m.close()), save] });
 }
 
 /* ================= FABRICACIÓN ================= */
@@ -785,6 +842,7 @@ async function dashboardView(c) {
     <div class="kpis">
       <div class="card kpi"><div class="lbl">Ventas del mes</div><div class="val">${money(k.ventasMesTotal)}</div><div class="delta">${k.ventasMesCount} operaciones</div></div>
       <div class="card kpi"><div class="lbl">Compras del mes</div><div class="val">${money(k.comprasMesTotal)}</div></div>
+      <div class="card kpi"><div class="lbl">Caja</div><div class="val">${money(k.saldoCaja)}</div><div class="delta">A cobrar ${money(k.aCobrar)} · A pagar ${money(k.aPagar)}</div></div>
       <div class="card kpi"><div class="lbl">Valor de stock (PT)</div><div class="val">${money(k.stockValor)}</div></div>
       <div class="card kpi"><div class="lbl">Productos</div><div class="val">${k.productos}</div><div class="delta">${k.insumos} insumos · ${k.ordenes} órdenes</div></div>
     </div>
