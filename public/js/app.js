@@ -1026,6 +1026,7 @@ function maquinaCard(m) {
   const on = m.online;
   const e = m.estado || {};
   const cfg = e.config || {};
+  const bAguaAuto = cfg.bomba_agua_auto !== false;
   const ta = (e.temp_choco != null) ? e.temp_choco : '—';
   const tw = (e.temp_agua != null) ? e.temp_agua : '—';
   const sp = (e.setpoint != null) ? e.setpoint : '—';
@@ -1040,7 +1041,7 @@ function maquinaCard(m) {
     : '—';
   return `<div class="card card-pad maq-card" data-maq="${esc(m._id)}">
     <div class="maq-head">
-      <b>${esc(m.nombre)}</b>
+      <b class="maq-link" data-panel="${esc(m._id)}" style="cursor:pointer" title="Abrir panel">${esc(m.nombre)}</b>
       <span class="pill ${on ? 'ok' : 'bad'}">${on ? 'En línea' : 'Desconectada'}</span>
     </div>
     <div class="maq-temps">
@@ -1057,7 +1058,12 @@ function maquinaCard(m) {
     <div class="maq-cfg">Derretido ${esc(_v(cfg.temp_derretido))}° · Templado ${esc(_v(cfg.temp_templado))}° · Máx agua ${esc(_v(cfg.max_agua))}° · Δ ${esc(_v(cfg.delta_agua))}°</div>
     <div class="maq-receta">Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
     <div class="row-actions maq-actions">
-      <button class="btn btn-ghost btn-sm" data-ctrl="${esc(m._id)}" ${on ? '' : 'disabled'}>⚙ Control</button>
+      <button class="btn btn-sm btn-primary" data-panel="${esc(m._id)}">⛶ Abrir panel</button>
+      <button class="btn btn-sm ${e.proceso_activo ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="proceso_activo" ${on ? '' : 'disabled'}>${e.proceso_activo ? '■ Detener' : '▶ Iniciar'}</button>
+      <button class="btn btn-sm ${e.motor ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="motor" ${on ? '' : 'disabled'}>⚙ Motor ${e.motor ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${e.bomba ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba" ${on ? '' : 'disabled'}>🔁 Bomba ${e.bomba ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${bAguaAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="bomba_agua_auto" ${on ? '' : 'disabled'}>💧 Agua: ${bAguaAuto ? 'AUTO' : 'MANUAL'}</button>
+      <button class="btn btn-sm ${e.bomba_agua ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba_agua" ${on && !bAguaAuto ? '' : 'disabled'}>💧 Bomba agua ${e.bomba_agua ? 'ON' : 'OFF'}</button>
       <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>▶ Iniciar receta</button>
       <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>⬆ Actualizar FW</button>
       <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--red)">🗑 Borrar</button>
@@ -1082,7 +1088,9 @@ async function maquinasView(c) {
 // Engancha los botones de una card (o de todas si no se pasa una).
 function bindMaquinaButtons(scope) {
   const find = id => maquinasData.find(x => x._id === id);
-  $$('[data-ctrl]', scope).forEach(b => b.onclick = () => controlModal(find(b.dataset.ctrl)));
+  $$('[data-panel]', scope).forEach(b => b.onclick = () => abrirPanelMaquina(find(b.dataset.panel)));
+  $$('[data-tgl]', scope).forEach(b => b.onclick = () => toggleMaquina(b.dataset.tgl, b.dataset.campo, b));
+  $$('[data-modo]', scope).forEach(b => b.onclick = () => toggleModoMaquina(b.dataset.modo, b.dataset.campo, b));
   $$('[data-rec]', scope).forEach(b => b.onclick = () => enviarRecetaModal(find(b.dataset.rec)));
   $$('[data-ota]', scope).forEach(b => b.onclick = () => otaModal(find(b.dataset.ota)));
   $$('[data-del]', scope).forEach(b => b.onclick = () => borrarMaquina(find(b.dataset.del)));
@@ -1112,6 +1120,8 @@ function conectarSSE() {
     if (d.estado) m.estado = d.estado;
     if (d.recetaActiva != null) m.recetaActiva = d.recetaActiva;
     if (d.fwVersion != null) m.fwVersion = d.fwVersion;
+    // Si hay un panel individual abierto de esta máquina, refrescá su estado en vivo.
+    if (panelMaquina && panelMaquina.id === d.maquinaId) panelMaquina.repaint();
     const card = $(`[data-maq="${d.maquinaId}"]`);
     if (!card) return;
     card.outerHTML = maquinaCard(m);
@@ -1146,27 +1156,163 @@ async function vincularModal() {
   obs.observe($('#modal-root'), { childList: true });
 }
 
-function controlModal(m) {
+// Control directo: cada botón de la card togglea su actuador sin abrir modal.
+const CAMPO_LABEL = { proceso_activo: 'Proceso', motor: 'Motor', bomba: 'Bomba', bomba_agua: 'Bomba agua', bomba_agua_auto: 'Modo bomba agua' };
+async function toggleMaquina(id, campo, boton) {
+  const m = maquinasData.find(x => x._id === id);
+  if (!m) return;
   const e = m.estado || {};
-  const form = document.createElement('div');
-  form.innerHTML = `<div class="form-grid">
-    <div class="field"><label>Proceso activo</label>
-      <select data-f="proceso_activo"><option value="true">Encendido</option><option value="false" ${!e.proceso_activo ? 'selected' : ''}>Apagado</option></select></div>
-    <div class="field"><label>Motor revolvedor</label>
-      <select data-f="motor"><option value="true">Encendido</option><option value="false" ${!e.motor ? 'selected' : ''}>Apagado</option></select></div>
-    <div class="field"><label>Bomba</label>
-      <select data-f="bomba"><option value="true">Encendida</option><option value="false" ${!e.bomba ? 'selected' : ''}>Apagada</option></select></div>
-  </div>`;
-  const enviar = btn('Enviar', 'btn-primary', async () => {
-    const payload = {
-      proceso_activo: $('[data-f="proceso_activo"]', form).value === 'true',
-      motor: $('[data-f="motor"]', form).value === 'true',
-      bomba: $('[data-f="bomba"]', form).value === 'true'
-    };
-    try { await post('/maquinas/' + encodeURIComponent(m._id) + '/control', payload); toast('Comando enviado'); mm.close(); }
-    catch (err) { toast(err.message, 'err'); }
+  const nuevo = !e[campo];
+  if (boton) boton.disabled = true;
+  try {
+    await post('/maquinas/' + encodeURIComponent(id) + '/control', { [campo]: nuevo });
+    toast(`${CAMPO_LABEL[campo] || campo}: ${nuevo ? 'ON' : 'OFF'}`);
+  } catch (err) {
+    toast(err.message || 'No se pudo enviar', 'err');
+    if (boton) boton.disabled = false; // si falló, rehabilitar (si funcionó, el SSE re-renderiza la card)
+  }
+}
+
+// Cambia un flag de modo auto/manual (vive en estado.config, no en el estado plano).
+async function toggleModoMaquina(id, campo, boton) {
+  const m = maquinasData.find(x => x._id === id);
+  if (!m) return;
+  const cfg = (m.estado || {}).config || {};
+  const auto = cfg[campo] !== false;
+  const nuevo = !auto;
+  if (boton) boton.disabled = true;
+  try {
+    await post('/maquinas/' + encodeURIComponent(id) + '/control', { [campo]: nuevo });
+    toast(`${CAMPO_LABEL[campo] || campo}: ${nuevo ? 'AUTO' : 'MANUAL'}`);
+  } catch (err) {
+    toast(err.message || 'No se pudo enviar', 'err');
+    if (boton) boton.disabled = false;
+  }
+}
+
+/* ===== Panel individual de máquina (réplica del panel local del ESP32) ===== */
+let panelMaquina = null; // { id, repaint } mientras hay un panel abierto
+
+// Zona de estado + controles directos (se repinta en vivo con cada telemetría).
+function panelEstadoHTML(m) {
+  const on = m.online;
+  const e = m.estado || {};
+  const cfg = e.config || {};
+  const bAguaAuto = cfg.bomba_agua_auto !== false;
+  const ta = (e.temp_choco != null) ? e.temp_choco : '—';
+  const tw = (e.temp_agua != null) ? e.temp_agua : '—';
+  const sp = (e.setpoint != null) ? e.setpoint : '—';
+  const en = e.etapa_actual;
+  const etapaVal = (en != null && ETAPAS_MAQ[en] != null)
+    ? `${en}<span class="mt-etapa-name">${esc(ETAPAS_MAQ[en])}</span>` : '—';
+  const avisos = [];
+  if (e.error) avisos.push('⚠ Error de sensor');
+  if (e.reinicio_inesperado) avisos.push('⚠ Reinicio inesperado');
+  if (e.aviso_mantener_fin) avisos.push('✓ Fin de mantenido');
+  const dis = on ? '' : 'disabled';
+  const enEtapa0 = en === 0 && e.proceso_activo;
+  return `
+    <div class="maq-proc" style="margin-bottom:.5rem">${on ? '<span class="pill ok">En línea</span>' : '<span class="pill bad">Desconectada · último estado conocido</span>'}</div>
+    <div class="maq-temps">
+      ${tempCell('Chocolate', '🍫', esc(ta) + '°', 't-choco')}
+      ${tempCell('Agua', '💧', esc(tw) + '°', 't-agua')}
+      ${tempCell('Setpoint', '🌡️', esc(sp) + '°', 't-sp')}
+      ${tempCell('Etapa', '⚙️', etapaVal, 't-etapa')}
+    </div>
+    <div class="maq-proc">Proceso: <b style="color:${e.proceso_activo ? 'var(--green)' : 'inherit'}">${e.proceso_activo ? 'EN CURSO' : 'Detenido'}</b></div>
+    <div class="maq-chips">
+      ${chipAct('Resist. 1', e.r1, '🔥')}${chipAct('Resist. 2', e.r2, '🔥')}${chipAct('Ventilador', e.ventilador, '🌀')}
+    </div>
+    ${avisos.length ? `<div class="maq-aviso">${avisos.map(a => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
+    <div class="row-actions" style="margin-top:.7rem;flex-wrap:wrap">
+      <button class="btn btn-sm ${e.proceso_activo ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="proceso_activo" ${dis}>${e.proceso_activo ? '■ Detener' : '▶ Iniciar'}</button>
+      ${enEtapa0 ? `<button class="btn btn-sm btn-primary" data-derretido="${esc(m._id)}" ${dis}>🔥 Iniciar derretido</button>` : ''}
+      <button class="btn btn-sm ${e.motor ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="motor" ${dis}>⚙ Motor ${e.motor ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${e.bomba ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba" ${dis}>🔁 Bomba ${e.bomba ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${bAguaAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="bomba_agua_auto" ${dis}>💧 Agua: ${bAguaAuto ? 'AUTO' : 'MANUAL'}</button>
+      <button class="btn btn-sm ${e.bomba_agua ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba_agua" ${on && !bAguaAuto ? '' : 'disabled'}>💧 Bomba agua ${e.bomba_agua ? 'ON' : 'OFF'}</button>
+    </div>`;
+}
+
+// Zona de ajuste fino (estática: no se pisa mientras editás).
+function panelAjusteHTML(m) {
+  const cfg = (m.estado || {}).config || {};
+  const v = x => (x != null ? esc(x) : '');
+  const campo = (lbl, id, val, step) =>
+    `<label style="display:flex;flex-direction:column;font-size:.72rem;gap:.2rem;font-weight:600">${lbl}
+       <input type="number" step="${step}" id="${id}" value="${val}" style="font-weight:400"></label>`;
+  return `
+    <div class="maq-receta" style="margin-top:1rem;font-weight:700">Ajuste fino (sesión actual) · Receta: ${esc(m.recetaActiva || cfg.perfil || '—')} · FW ${esc(m.fwVersion || '—')}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.5rem;margin-top:.5rem">
+      ${campo('Temp derretido', 'pDerretido', v(cfg.temp_derretido), '0.1')}
+      ${campo('Temp templado', 'pTemplado', v(cfg.temp_templado), '0.1')}
+      ${campo('Máx agua', 'pMax', v(cfg.max_agua), '0.1')}
+      ${campo('Δ agua', 'pDelta', v(cfg.delta_agua), '0.1')}
+      ${campo('Kp', 'pKp', v(cfg.kp), '0.01')}
+      ${campo('Ki', 'pKi', v(cfg.ki), '0.001')}
+      ${campo('Kd', 'pKd', v(cfg.kd), '0.01')}
+    </div>
+    <div class="row-actions" style="margin-top:.7rem;flex-wrap:wrap">
+      <button class="btn btn-sm btn-primary" id="pGuardarAjuste">Guardar ajuste</button>
+      <button class="btn btn-sm btn-ghost" id="pReceta">Cargar / iniciar receta…</button>
+    </div>`;
+}
+
+function bindPanelEstado(scope) {
+  $$('[data-tgl]', scope).forEach(b => b.onclick = () => toggleMaquina(b.dataset.tgl, b.dataset.campo, b));
+  $$('[data-modo]', scope).forEach(b => b.onclick = () => toggleModoMaquina(b.dataset.modo, b.dataset.campo, b));
+  $$('[data-derretido]', scope).forEach(b => b.onclick = () => iniciarDerretidoMaquina(b.dataset.derretido, b));
+}
+
+async function iniciarDerretidoMaquina(id, boton) {
+  if (boton) boton.disabled = true;
+  try {
+    await post('/maquinas/' + encodeURIComponent(id) + '/control', { iniciar_derretido: true });
+    toast('Derretido iniciado');
+  } catch (err) { toast(err.message || 'No se pudo enviar', 'err'); if (boton) boton.disabled = false; }
+}
+
+function bindPanelAjuste(scope, m) {
+  const g = $('#pGuardarAjuste', scope);
+  if (g) g.onclick = async () => {
+    const num = id => { const el = $('#' + id, scope); const x = parseFloat(el && el.value); return isNaN(x) ? undefined : x; };
+    const map = { temp_derretido: 'pDerretido', temp_templado: 'pTemplado', max_agua: 'pMax', delta_agua: 'pDelta', kp: 'pKp', ki: 'pKi', kd: 'pKd' };
+    const payload = {};
+    for (const k in map) { const val = num(map[k]); if (val !== undefined) payload[k] = val; }
+    if (!Object.keys(payload).length) return toast('Nada para enviar', 'err');
+    g.disabled = true;
+    try { await post('/maquinas/' + encodeURIComponent(m._id) + '/control', payload); toast('Ajuste enviado'); }
+    catch (err) { toast(err.message || 'No se pudo enviar', 'err'); }
+    g.disabled = false;
+  };
+  const r = $('#pReceta', scope);
+  if (r) r.onclick = () => enviarRecetaModal(m);
+}
+
+function abrirPanelMaquina(m0) {
+  if (!m0) return;
+  const body = document.createElement('div');
+  const estado = document.createElement('div'); estado.id = 'mpEstado';
+  const ajuste = document.createElement('div'); ajuste.id = 'mpAjuste';
+  body.append(estado, ajuste);
+
+  // Estado: se repinta en vivo. Ajuste: se construye una vez para no pisar lo que editás.
+  const pintarEstado = () => {
+    const m = maquinasData.find(x => x._id === m0._id) || m0;
+    estado.innerHTML = panelEstadoHTML(m);
+    bindPanelEstado(estado);
+  };
+  pintarEstado();
+  ajuste.innerHTML = panelAjusteHTML(m0);
+  bindPanelAjuste(ajuste, m0);
+
+  const mm = modal({ title: 'Panel · ' + m0.nombre, body, wide: true, footer: [btn('Cerrar', 'btn-ghost', () => mm.close())] });
+  mm.el.style.width = 'min(1100px, 98vw)'; // panel amplio: que entre todo cómodo
+  panelMaquina = { id: m0._id, repaint: pintarEstado };
+  const obs = new MutationObserver(() => {
+    if (!document.body.contains(mm.bg)) { panelMaquina = null; obs.disconnect(); }
   });
-  const mm = modal({ title: 'Control · ' + m.nombre, body: form, footer: [btn('Cancelar', 'btn-ghost', () => mm.close()), enviar] });
+  obs.observe($('#modal-root'), { childList: true });
 }
 
 async function enviarRecetaModal(m) {
