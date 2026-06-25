@@ -43,7 +43,7 @@ router.delete('/:id', auth.requireRole('admin'), async (req, res) => {
 });
 
 // ------------------------------------------------------------------
-// Análisis IA con Google Gemini (free tier).
+// Análisis IA con Groq (free tier, API compatible con OpenAI).
 // ------------------------------------------------------------------
 
 // Submuestrea la curva a ~40 puntos para no inflar el prompt.
@@ -84,36 +84,43 @@ function construirPrompt(doc) {
   ].join('\n');
 }
 
-async function analizarConGemini(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.geminiModel}:generateContent?key=${cfg.geminiApiKey}`;
+async function analizarConGroq(prompt) {
+  const url = 'https://api.groq.com/openai/v1/chat/completions';
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cfg.groqApiKey}`
+    },
+    body: JSON.stringify({
+      model: cfg.groqModel,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3
+    })
   });
   if (!resp.ok) {
     const t = await resp.text();
-    const err = new Error(`Gemini HTTP ${resp.status}: ${t.slice(0, 300)}`);
+    const err = new Error(`Groq HTTP ${resp.status}: ${t.slice(0, 300)}`);
     err.statusCode = 502;
     throw err;
   }
   const j = await resp.json();
-  const texto = j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-  if (!texto) { const e = new Error('Gemini no devolvió texto'); e.statusCode = 502; throw e; }
+  const texto = j?.choices?.[0]?.message?.content || '';
+  if (!texto) { const e = new Error('Groq no devolvió texto'); e.statusCode = 502; throw e; }
   return texto.trim();
 }
 
 router.post('/:id/analizar', async (req, res) => {
-  if (!cfg.geminiApiKey) {
-    return res.status(400).json({ error: 'Falta configurar GEMINI_API_KEY en el servidor' });
+  if (!cfg.groqApiKey) {
+    return res.status(400).json({ error: 'Falta configurar GROQ_API_KEY en el servidor' });
   }
   try {
     const doc = await database.get(req.params.id);
     if (doc.type !== 'procterm') return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'Proceso no encontrado' });
     if (!doc.samples || !doc.samples.length) return res.status(400).json({ error: 'El proceso no tiene muestras' });
-    const texto = await analizarConGemini(construirPrompt(doc));
-    doc.analisisIA = { texto, modelo: cfg.geminiModel, fecha: new Date().toISOString() };
+    const texto = await analizarConGroq(construirPrompt(doc));
+    doc.analisisIA = { texto, modelo: cfg.groqModel, fecha: new Date().toISOString() };
     await database.raw().insert(doc);
     res.json(doc.analisisIA);
   } catch (e) {

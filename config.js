@@ -16,10 +16,10 @@ module.exports = {
 
   sessionSecret: process.env.SESSION_SECRET || 'cambiar-este-secreto-en-produccion-1950',
 
-  // Análisis IA de curvas de temperatura (Google Gemini, free tier).
-  // Key gratuita en https://aistudio.google.com/apikey
-  geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  // Análisis IA de curvas de temperatura (Groq, free tier, sin tarjeta).
+  // Key gratuita en https://console.groq.com (empieza con gsk_...).
+  groqApiKey: process.env.GROQ_API_KEY || '',
+  groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
 
   // Superadmin que se crea automáticamente si la base está vacía
   bootstrapAdmin: {
