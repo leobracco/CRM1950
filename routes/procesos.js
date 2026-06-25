@@ -46,8 +46,9 @@ router.delete('/:id', auth.requireRole('admin'), async (req, res) => {
 // Análisis IA con Groq (free tier, API compatible con OpenAI).
 // ------------------------------------------------------------------
 
-// Submuestrea la curva a ~40 puntos para no inflar el prompt.
-function resumirCurva(samples, n = 40) {
+// Submuestrea la curva a ~60 puntos para no inflar el prompt. Incluye el estado
+// del motor (agitador) y la bomba: afectan la transferencia térmica agua->choco.
+function resumirCurva(samples, n = 60) {
   if (!samples || !samples.length) return [];
   const paso = Math.max(1, Math.floor(samples.length / n));
   const out = [];
@@ -55,7 +56,8 @@ function resumirCurva(samples, n = 40) {
     const s = samples[i];
     out.push({
       min: i === 0 ? 0 : Math.round((new Date(s.t) - new Date(samples[0].t)) / 60000),
-      agua: s.ta, choco: s.tc, sp: s.sp, etapa: s.et
+      agua: s.ta, choco: s.tc, sp: s.sp, etapa: s.et,
+      motor: s.m ? 1 : 0, bomba: s.b ? 1 : 0
     });
   }
   return out;
@@ -69,18 +71,21 @@ function construirPrompt(doc) {
   const seg = r.segPorEtapa || {};
   const etapasTxt = Object.keys(seg).map(k => `${ETAPAS[k] || ('etapa ' + k)}: ${Math.round(seg[k] / 60)} min`).join(', ');
   return [
-    'Sos un técnico experto en templado de chocolate. Analizá esta corrida de una máquina templadora.',
-    'El "setpoint" (sp) es la temperatura objetivo; "choco" es la temperatura real del chocolate y "agua" la del baño.',
+    'Sos un ingeniero de procesos especialista en templado (cristalización) de chocolate y en control de temperatura PID.',
+    'Contexto técnico: el templado busca formar cristales beta V de manteca de cacao. El perfil típico es fundir (~45-50 °C), enfriar para nuclear cristales (~27-28 °C) y recalentar a la temperatura de trabajo (negro ~31-32 °C, leche ~29-30 °C). Un buen control sigue el setpoint con bajo error, sin sobrepasos ni oscilaciones; el "agua" es el baño que calienta/enfría y arrastra al "choco" con cierto retardo térmico (lag). El motor es el agitador y la bomba recircula: ambos mejoran la homogeneidad y la transferencia de calor.',
+    'El "setpoint" (sp) es la temperatura objetivo; "choco" es la temperatura real del chocolate, "agua" la del baño; motor y bomba son 0/1 (apagado/encendido).',
     `Receta: ${doc.receta || 'N/D'}.`,
     `Duración: ${Math.round((r.duracionSeg || 0) / 60)} min. Tiempo por etapa: ${etapasTxt || 'N/D'}.`,
     `Chocolate min/prom/max: ${r.chocoMin}/${r.chocoProm}/${r.chocoMax} °C. Agua min/max: ${r.aguaMin}/${r.aguaMax} °C.`,
-    `Curva (minuto, agua, choco, setpoint, etapa): ${JSON.stringify(curva)}`,
+    `Curva (minuto, agua, choco, setpoint, etapa, motor, bomba): ${JSON.stringify(curva)}`,
     '',
-    'Respondé en español, claro y breve (máximo 180 palabras), con estas secciones:',
-    '1) Calidad del templado (¿siguió bien el setpoint? ¿hubo sobrepasos u oscilaciones?).',
-    '2) Anomalías o riesgos detectados.',
-    '3) Recomendaciones concretas (ajustes de receta o de PID).',
-    'No inventes datos que no estén en la curva.'
+    'Respondé en español técnico pero claro, con datos cuantitativos extraídos de la curva (°C, °C/min, minutos, %). Usá estas secciones:',
+    '1) Seguimiento del setpoint: error medio y máximo del choco respecto al sp, sobrepasos (cuantificados en °C y %), oscilaciones y en qué tramos.',
+    '2) Dinámica térmica: velocidad de las rampas de calentamiento y enfriamiento (°C/min), retardo (lag) entre agua y choco, y efecto observable del motor/bomba sobre la respuesta.',
+    '3) Calidad del templado: ¿el perfil fundido -> enfriado -> recalentado fue correcto para la receta? ¿se alcanzaron y sostuvieron las ventanas de cristalización? riesgo de cristales inestables, fat bloom o producto sobre/sub-templado.',
+    '4) Anomalías y riesgos: saltos bruscos, lecturas dudosas de sensores, tramos sin control, reinicios.',
+    '5) Recomendaciones concretas: ajustes de receta (setpoints, tiempos) y de sintonía PID (sugerí dirección de Kp/Ki/Kd según el comportamiento visto), justificados con lo observado.',
+    'Sé concreto y apoyate siempre en números de la curva. No inventes datos que no estén en la curva; si algo no se puede determinar, decilo.'
   ].join('\n');
 }
 
@@ -95,7 +100,8 @@ async function analizarConGroq(prompt) {
     body: JSON.stringify({
       model: cfg.groqModel,
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3
+      temperature: 0.3,
+      max_tokens: 1400
     })
   });
   if (!resp.ok) {
