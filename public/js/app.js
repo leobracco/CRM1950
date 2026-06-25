@@ -1027,6 +1027,7 @@ function maquinaCard(m) {
   const e = m.estado || {};
   const cfg = e.config || {};
   const bAguaAuto = cfg.bomba_agua_auto !== false;
+  const ventAuto = cfg.ventilador_auto !== false;
   const ta = (e.temp_choco != null) ? e.temp_choco : '—';
   const tw = (e.temp_agua != null) ? e.temp_agua : '—';
   const sp = (e.setpoint != null) ? e.setpoint : '—';
@@ -1064,6 +1065,8 @@ function maquinaCard(m) {
       <button class="btn btn-sm ${e.bomba ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba" ${on ? '' : 'disabled'}>🔁 Bomba ${e.bomba ? 'ON' : 'OFF'}</button>
       <button class="btn btn-sm ${bAguaAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="bomba_agua_auto" ${on ? '' : 'disabled'}>💧 Agua: ${bAguaAuto ? 'AUTO' : 'MANUAL'}</button>
       <button class="btn btn-sm ${e.bomba_agua ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba_agua" ${on && !bAguaAuto ? '' : 'disabled'}>💧 Bomba agua ${e.bomba_agua ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${ventAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="ventilador_auto" ${on ? '' : 'disabled'}>🌀 Vent.: ${ventAuto ? 'AUTO' : 'MANUAL'}</button>
+      <button class="btn btn-sm ${e.ventilador ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="ventilador" ${on && !ventAuto ? '' : 'disabled'}>🌀 Ventilador ${e.ventilador ? 'ON' : 'OFF'}</button>
       <button class="btn btn-ghost btn-sm" data-rec="${esc(m._id)}" ${on ? '' : 'disabled'}>▶ Iniciar receta</button>
       <button class="btn btn-ghost btn-sm" data-ota="${esc(m._id)}" ${on ? '' : 'disabled'}>⬆ Actualizar FW</button>
       <button class="btn btn-ghost btn-sm" data-del="${esc(m._id)}" style="color:var(--red)">🗑 Borrar</button>
@@ -1157,7 +1160,7 @@ async function vincularModal() {
 }
 
 // Control directo: cada botón de la card togglea su actuador sin abrir modal.
-const CAMPO_LABEL = { proceso_activo: 'Proceso', motor: 'Motor', bomba: 'Bomba', bomba_agua: 'Bomba agua', bomba_agua_auto: 'Modo bomba agua' };
+const CAMPO_LABEL = { proceso_activo: 'Proceso', motor: 'Motor', bomba: 'Bomba', bomba_agua: 'Bomba agua', bomba_agua_auto: 'Modo bomba agua', ventilador: 'Ventilador', ventilador_auto: 'Modo ventilador' };
 async function toggleMaquina(id, campo, boton) {
   const m = maquinasData.find(x => x._id === id);
   if (!m) return;
@@ -1199,6 +1202,7 @@ function panelEstadoHTML(m) {
   const e = m.estado || {};
   const cfg = e.config || {};
   const bAguaAuto = cfg.bomba_agua_auto !== false;
+  const ventAuto = cfg.ventilador_auto !== false;
   const ta = (e.temp_choco != null) ? e.temp_choco : '—';
   const tw = (e.temp_agua != null) ? e.temp_agua : '—';
   const sp = (e.setpoint != null) ? e.setpoint : '—';
@@ -1231,6 +1235,8 @@ function panelEstadoHTML(m) {
       <button class="btn btn-sm ${e.bomba ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba" ${dis}>🔁 Bomba ${e.bomba ? 'ON' : 'OFF'}</button>
       <button class="btn btn-sm ${bAguaAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="bomba_agua_auto" ${dis}>💧 Agua: ${bAguaAuto ? 'AUTO' : 'MANUAL'}</button>
       <button class="btn btn-sm ${e.bomba_agua ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba_agua" ${on && !bAguaAuto ? '' : 'disabled'}>💧 Bomba agua ${e.bomba_agua ? 'ON' : 'OFF'}</button>
+      <button class="btn btn-sm ${ventAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="ventilador_auto" ${dis}>🌀 Vent.: ${ventAuto ? 'AUTO' : 'MANUAL'}</button>
+      <button class="btn btn-sm ${e.ventilador ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="ventilador" ${on && !ventAuto ? '' : 'disabled'}>🌀 Ventilador ${e.ventilador ? 'ON' : 'OFF'}</button>
     </div>`;
 }
 
