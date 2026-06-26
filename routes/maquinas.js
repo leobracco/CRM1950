@@ -68,6 +68,17 @@ router.post('/:id/receta', auth.requireRole('admin', 'operario', 'produccion'), 
   res.json({ ok });
 });
 
+// Modo instalador: probar relays individualmente (admin; tarea de técnico).
+router.post('/:id/instalador', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const doc = await database.get(req.params.id);
+    if (!req.esSuperadmin && doc.empresaId !== req.empresaId) return res.status(404).json({ error: 'No encontrada' });
+  } catch (e) { return res.status(404).json({ error: 'No encontrada' }); }
+  if (!gw.online(req.params.id)) return res.status(409).json({ error: 'Máquina desconectada' });
+  const ok = gw.enviar(req.params.id, { t: proto.INSTALADOR, payload: req.body || {} });
+  res.json({ ok });
+});
+
 // Cambiar nombre de la máquina (admin).
 router.put('/:id', auth.requireRole('admin'), async (req, res) => {
   try {

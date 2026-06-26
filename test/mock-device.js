@@ -24,6 +24,7 @@ async function main() {
   let estado = {
     temp_choco: 30, temp_agua: 40, etapa_actual: 1, motor: false, bomba: false,
     proceso_activo: false, aviso_mantener_fin: false,
+    modo_instalador: false, test_relay: '',
     config: {
       perfil: 'Mock Leche', temp_derretido: 45, temp_templado: 27, max_agua: 60, delta_agua: 15,
       temp_precalentado: 0, tiempo_mantener_min: 0, mezcla_on_seg: 0, mezcla_periodo_min: 0
@@ -44,6 +45,13 @@ async function main() {
     if (m.t === 'control' && m.payload) Object.assign(estado, m.payload);
     if (m.t === 'receta' && m.payload) { estado.config = { ...estado.config, perfil: m.payload.nombre, ...m.payload }; }
     if (m.t === 'ota') ws.send(JSON.stringify({ t: 'ota_progreso', pct: 100 }));
+    if (m.t === 'instalador' && m.payload) {
+      const p = m.payload;
+      if (p.instalador === 'on') { estado.modo_instalador = true; estado.test_relay = ''; }
+      else if (p.instalador === 'off') { estado.modo_instalador = false; estado.test_relay = ''; }
+      else if (p.instalador === 'test') { estado.test_relay = p.on ? p.relay : ''; }
+      ws.send(JSON.stringify({ t: 'telemetria', estado }));
+    }
   });
   ws.on('close', (c, r) => console.log('WS cerrado', c, r.toString()));
 }
