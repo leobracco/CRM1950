@@ -1125,6 +1125,7 @@ function conectarSSE() {
     if (d.fwVersion != null) m.fwVersion = d.fwVersion;
     // Si hay un panel individual abierto de esta máquina, refrescá su estado en vivo.
     if (panelMaquina && panelMaquina.id === d.maquinaId) panelMaquina.repaint();
+    if (panelInstalador && panelInstalador.id === d.maquinaId) panelInstalador.repaint();
     const card = $(`[data-maq="${d.maquinaId}"]`);
     if (!card) return;
     card.outerHTML = maquinaCard(m);
@@ -1195,6 +1196,7 @@ async function toggleModoMaquina(id, campo, boton) {
 
 /* ===== Panel individual de máquina (réplica del panel local del ESP32) ===== */
 let panelMaquina = null; // { id, repaint } mientras hay un panel abierto
+let panelInstalador = null; // { id, repaint } mientras hay un modal instalador abierto
 
 // Zona de estado + controles directos (se repinta en vivo con cada telemetría).
 function panelEstadoHTML(m) {
@@ -1203,6 +1205,7 @@ function panelEstadoHTML(m) {
   const cfg = e.config || {};
   const bAguaAuto = cfg.bomba_agua_auto !== false;
   const ventAuto = cfg.ventilador_auto !== false;
+  const esAdminUser = USER && (USER.rol === 'admin' || USER.rol === 'superadmin');
   const ta = (e.temp_choco != null) ? e.temp_choco : '—';
   const tw = (e.temp_agua != null) ? e.temp_agua : '—';
   const sp = (e.setpoint != null) ? e.setpoint : '—';
@@ -1237,6 +1240,7 @@ function panelEstadoHTML(m) {
       <button class="btn btn-sm ${e.bomba_agua ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="bomba_agua" ${on && !bAguaAuto ? '' : 'disabled'}>💧 Bomba agua ${e.bomba_agua ? 'ON' : 'OFF'}</button>
       <button class="btn btn-sm ${ventAuto ? 'btn-ghost' : 'btn-primary'}" data-modo="${esc(m._id)}" data-campo="ventilador_auto" ${dis}>🌀 Vent.: ${ventAuto ? 'AUTO' : 'MANUAL'}</button>
       <button class="btn btn-sm ${e.ventilador ? 'btn-primary' : 'btn-ghost'}" data-tgl="${esc(m._id)}" data-campo="ventilador" ${on && !ventAuto ? '' : 'disabled'}>🌀 Ventilador ${e.ventilador ? 'ON' : 'OFF'}</button>
+      ${esAdminUser ? `<button class="btn btn-sm btn-ghost" data-instalador="${esc(m._id)}" ${on && !e.proceso_activo ? '' : 'disabled'} title="${e.proceso_activo ? 'Detené el proceso para probar relays' : 'Probar cada relay individualmente'}">🔧 Modo instalador</button>` : ''}
     </div>`;
 }
 
@@ -1268,6 +1272,7 @@ function bindPanelEstado(scope) {
   $$('[data-tgl]', scope).forEach(b => b.onclick = () => toggleMaquina(b.dataset.tgl, b.dataset.campo, b));
   $$('[data-modo]', scope).forEach(b => b.onclick = () => toggleModoMaquina(b.dataset.modo, b.dataset.campo, b));
   $$('[data-derretido]', scope).forEach(b => b.onclick = () => iniciarDerretidoMaquina(b.dataset.derretido, b));
+  $$('[data-instalador]', scope).forEach(b => b.onclick = () => abrirModalInstalador(b.dataset.instalador));
 }
 
 async function iniciarDerretidoMaquina(id, boton) {
@@ -1276,6 +1281,80 @@ async function iniciarDerretidoMaquina(id, boton) {
     await post('/maquinas/' + encodeURIComponent(id) + '/control', { iniciar_derretido: true });
     toast('Derretido iniciado');
   } catch (err) { toast(err.message || 'No se pudo enviar', 'err'); if (boton) boton.disabled = false; }
+}
+
+// Modal del modo instalador: entra al modo y muestra 6 botones de relay.
+// La fuente de verdad es el firmware (llega por SSE); el cliente solo dispara comandos.
+const RELAYS_INSTALADOR = [
+  ['r1', 'Resist. 1'], ['r2', 'Resist. 2'], ['revolvedor', 'Revolvedor'],
+  ['bomba', 'Bomba choco'], ['bomba_agua', 'Bomba agua'], ['ventilador', 'Ventilador']
+];
+
+async function enviarInstalador(id, payload) {
+  return post('/maquinas/' + encodeURIComponent(id) + '/instalador', payload);
+}
+
+function instaladorBotonesHTML(m) {
+  const e = m.estado || {};
+  const activo = !!e.modo_instalador;
+  if (!activo) {
+    return `<p class="muted">Entrando al modo instalador…</p>`;
+  }
+  return `<div class="row-actions" style="flex-wrap:wrap;gap:.5rem">
+    ${RELAYS_INSTALADOR.map(([rel, lbl]) => {
+      const on = e.test_relay === rel;
+      return `<button class="btn btn-sm ${on ? 'btn-primary' : 'btn-ghost'}" data-relay="${esc(rel)}">${esc(lbl)} ${on ? 'ON' : 'OFF'}</button>`;
+    }).join('')}
+  </div>
+  <div class="maq-temps" style="margin-top:.7rem">
+    ${tempCell('Chocolate', '🍫', esc(e.temp_choco != null ? e.temp_choco : '—') + '°', 't-choco')}
+    ${tempCell('Agua', '💧', esc(e.temp_agua != null ? e.temp_agua : '—') + '°', 't-agua')}
+  </div>
+  <p class="muted" style="font-size:.78rem;margin-top:.5rem">Cada relay se apaga solo a los 5 s. Uno por vez.</p>`;
+}
+
+function abrirModalInstalador(id) {
+  const m0 = maquinasData.find(x => x._id === id);
+  if (!m0) return;
+  if ((m0.estado || {}).proceso_activo) return toast('Detené el proceso para probar relays', 'err');
+
+  const body = document.createElement('div');
+  const zona = document.createElement('div'); zona.id = 'mpInstalador';
+  body.append(zona);
+
+  const pintar = () => {
+    const m = maquinasData.find(x => x._id === id) || m0;
+    zona.innerHTML = instaladorBotonesHTML(m);
+    $$('[data-relay]', zona).forEach(b => b.onclick = async () => {
+      const e = (maquinasData.find(x => x._id === id) || {}).estado || {};
+      const rel = b.dataset.relay;
+      const on = e.test_relay !== rel; // toggle: si ya está prendido, lo apaga
+      b.disabled = true;
+      try { await enviarInstalador(id, { instalador: 'test', relay: rel, on }); }
+      catch (err) { toast(err.message || 'No se pudo enviar', 'err'); b.disabled = false; }
+    });
+  };
+
+  // Entrar al modo al abrir.
+  enviarInstalador(id, { instalador: 'on' }).catch(err => toast(err.message || 'No se pudo entrar', 'err'));
+  pintar();
+
+  const salir = btn('Salir del modo instalador', 'btn-ghost', async () => {
+    try { await enviarInstalador(id, { instalador: 'off' }); } catch (e) {}
+    mm.close();
+  });
+  salir.style.color = 'var(--red)';
+  const mm = modal({ title: 'Modo instalador · ' + m0.nombre, body, footer: [salir] });
+
+  // Repinta en vivo con el feed SSE y sale del modo si se cierra el modal a mano.
+  panelInstalador = { id, repaint: pintar };
+  const obs = new MutationObserver(() => {
+    if (!document.body.contains(mm.bg)) {
+      enviarInstalador(id, { instalador: 'off' }).catch(() => {});
+      panelInstalador = null; obs.disconnect();
+    }
+  });
+  obs.observe($('#modal-root'), { childList: true });
 }
 
 function bindPanelAjuste(scope, m) {
